@@ -2,11 +2,11 @@
   "name": "coeus",
   "version": "0.0.1",
   "description": "Tracks how pairs are moving in the market.",
-  "main": "dist/index.js",
+  "main": "dist/server.js",
   "scripts": {
     "build": "tsc",
     "reload": "npm run build && npm run start",
-    "start": "node dist/index.js",
+    "start": "node dist/server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -20,7 +20,14 @@
     "!/dist/test"
   ],
   "dependencies": {
-    "@types/node": "^17.0.10"
+    "@types/node": "^17.0.10",
+    "@types/node-cron": "^3.0.2",
+    "coinbase-pro-node": "^5.0.0",
+    "dotenv": "^16.0.1",
+    "mathjs": "^11.0.1",
+    "mdsrv-client": "^1.0.3",
+    "mongoose": "^6.5.2",
+    "node-cron": "^3.0.2"
   },
   "devDependencies": {
     "eslint": "^8.6.0",
