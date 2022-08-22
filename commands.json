@@ -1,0 +1,43 @@
+[
+  {
+    "name": "example",
+    "params": [],
+    "dataObj": "",
+    "isEnabled": true,
+    "description": ["Example of a command, this actually does nothing."],
+    "usage": "example",
+    "v": 1
+  },
+  {
+    "name": "ping",
+    "params": [],
+    "dataObj": "",
+    "isEnabled": true,
+    "description": ["Replies with 'Pong!' and roundtrip time."],
+    "usage": "ping",
+    "v": 1
+  },
+  {
+    "name": "productInfo",
+    "params": [],
+    "dataObj": "",
+    "isEnabled": true,
+    "description": [
+      "Get information pertaining to a product.",
+      "productId - Id of the product."
+    ],
+    "usage": "productInfo [productId]",
+    "v": 1
+  },
+  {
+    "name": "logs",
+    "params": [],
+    "dataObj": "",
+    "isEnabled": true,
+    "description": [
+      "Gets most recent logs."
+    ],
+    "usage": "logs",
+    "v": 1
+  }
+]

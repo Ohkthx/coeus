@@ -20,10 +20,12 @@
     "!/dist/test"
   ],
   "dependencies": {
+    "@types/express": "^4.17.13",
     "@types/node": "^17.0.10",
     "@types/node-cron": "^3.0.2",
     "coinbase-pro-node": "^5.0.0",
     "dotenv": "^16.0.1",
+    "express": "^4.18.1",
     "mathjs": "^11.0.1",
     "mdsrv-client": "^1.0.3",
     "mongoose": "^6.5.2",

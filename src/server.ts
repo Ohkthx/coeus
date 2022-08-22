@@ -1,6 +1,8 @@
 import {DynamicState, StateConfig} from './core';
 import {delay} from './utils';
 import {connect} from 'mongoose';
+import {ConsoleState} from './commands';
+import {HTTPServer} from './rest';
 import {APP_DEBUG, DB_DATABASE, USE_SANDBOX, appInfo, appErr, appWarn} from '.';
 
 appInfo(`APP_DEBUG set to '${APP_DEBUG}'`);
@@ -35,6 +37,14 @@ async function killAll() {
   }
   appInfo('[Dynamic Algorithm] disabled.');
 
+  // Kill the HTTP server.
+  HTTPServer.stop();
+  if (HTTPServer.isActive) {
+    appInfo('[REST Server] waiting to close.');
+    while (HTTPServer.isActive) await delay(250);
+  }
+  appInfo('[REST Server] disabled.');
+
   process.exit();
 }
 
@@ -42,8 +52,14 @@ async function killAll() {
   // Make the connection to the database.
   await connect(`mongodb://localhost/${DB_DATABASE}`);
 
+  // Load the console commands and events.
+  ConsoleState.loadAll();
+
   // Initialize the Dynamic Algorithm.
   await DynamicState.initWrapper(DYNAMIC_OPTS);
+
+  // Start the REST server.
+  await HTTPServer.start();
 })().catch(async (err) => {
   let errMsg = 'unknown error';
   if (err.response) {
