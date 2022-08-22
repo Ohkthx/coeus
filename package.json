@@ -1,7 +1,7 @@
 {
-  "name": "ts-template",
+  "name": "coeus",
   "version": "0.0.1",
-  "description": "template for typescript projects",
+  "description": "Tracks how pairs are moving in the market.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
@@ -11,7 +11,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "github.com/ohkthx/node-ts-template"
+    "url": "github.com/ohkthx/coeus"
   },
   "author": "Ohkthx",
   "license": "ISC",
