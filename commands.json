@@ -30,6 +30,18 @@
     "v": 1
   },
   {
+    "name": "rankings",
+    "params": [],
+    "dataObj": "",
+    "isEnabled": true,
+    "description": [
+      "Get information pertaining to the current rankings.",
+      "get - Get current rankings."
+    ],
+    "usage": "rankings [get]",
+    "v": 1
+  },
+  {
     "name": "logs",
     "params": [],
     "dataObj": "",

@@ -1,12 +1,12 @@
 import {Candle} from 'coinbase-pro-node';
-import {mean, std} from 'mathjs';
-import {dynamicWarn} from '.';
-import {USE_SANDBOX} from '..';
-import {ProductDataModel} from '../models';
+import {std} from 'mathjs';
+import {SimpleCandle} from '../models/candle';
+import {CandleOpts} from './candle';
+import {createSpan, getSpan, Timespan} from './timespan';
 
 interface CandleBucket {
   timestampISO: string;
-  candles: Candle[];
+  candles: SimpleCandle[];
 }
 
 export interface ProductData {
@@ -17,87 +17,92 @@ export interface ProductData {
 
 export interface BucketData {
   timestampISO: string;
-  priceAvg: number;
-  priceLow: number;
-  priceHigh: number;
-  priceClose: number;
+  dataPoints: number;
   volume: number;
-  closeStd: number;
-  diffStd: number;
-  volumeStd: number;
+  price: {
+    avg: number;
+    low: number;
+    high: number;
+    close: number;
+  };
+  lastCandle: {
+    close: number;
+    low: number;
+    high: number;
+    volume: number;
+  };
+  deviation: {
+    close: number;
+    volume: number;
+  };
 }
 
 /**
- * Creates buckets of candles from preexisting candle data.
+ * Bundles candles into buckets, which are just groups of candles.
  *
- * @param {Candle[]} candles - Array of candles to bundle into buckets.
- * @param {number} candleSize - Size/length of candles in MINUTES.
- * @param {number} bucketSize - Amount of candles per bucket.
- * @param {number} lengthMs - Total time for all candles combined in MILLISECONDS(ms).
- * @returns {CandleBucket[]} Buckets of candles.
+ * @param {Candle[]} candles - Candles to process.
+ * @param {CandleOpts} opts - Options on how to pull and process candle data.
+ * @returns {BucketData[]} Newly created buckets of candle data.
  */
 export function createBuckets(
-  candles: Candle[],
-  candleSize: number,
-  bucketSize: number,
-  lengthMs: number,
-): {buckets: BucketData[]; missing: number} {
-  const candleBuckets: CandleBucket[] = [];
-  let bucket: CandleBucket | undefined;
+  candles: SimpleCandle[],
+  opts: CandleOpts,
+): BucketData[] {
+  // Create a timespan for the first bucket to get resized.
+  let past = new Date(opts.end);
+  past.setTime(past.getTime() - opts.bucketLengthMs);
+  let {start, end} = getSpan(past, opts.candleSizeMin, new Date(opts.end));
 
+  const spans: Timespan[] = [];
+  const buckets: CandleBucket[] = [];
+
+  // Create the spans and empty buckets to place candles in.
+  for (let i = opts.totalBuckets; i > 0; i--) {
+    const span = createSpan(start.toISOString(), end.toISOString());
+    spans.push(span);
+    buckets.push({timestampISO: end.toISOString(), candles: []});
+
+    end = new Date(start);
+    start.setTime(start.getTime() - opts.bucketLengthMs);
+  }
+
+  // Process each candle, and place it in the correct bucket based on timestamp.
+  //   Candles are placed NEWEST => OLDEST
+  let bucketPos = 0;
   for (let i = candles.length - 1; i >= 0; i--) {
     const candle = candles[i];
-    // Modify the minutes to reflect the close instead of open.
-    const cDateMin = new Date(candle.openTimeInISO).getMinutes() + candleSize;
 
-    // Create the bucket if the minutes time is correct.
-    if (cDateMin % (candleSize * bucketSize) === 0) {
-      // Push the candleBucket into the buckets if it is the proper length.
-      if (bucket?.candles.length === bucketSize) {
-        candleBuckets.push(bucket);
-      }
+    if (spans.length === 0) {
+      console.log(`\n RAN OUT OF SPANS FOR CANDLES.`);
+      break;
+    }
 
-      // Offset the time of the bucket to be appropriate for the time span.
-      const bucketDate = new Date(candles[i].openTimeInISO);
-      bucketDate.setMinutes(bucketDate.getMinutes() + candleSize);
-
-      // Create a new bucket.
-      bucket = {timestampISO: bucketDate.toISOString(), candles: [candle]};
+    // Place the candle into the bucket.
+    if (candle.openTimeInISO > spans[0].start.toISOString()) {
+      buckets[bucketPos].candles.push(candle);
       continue;
     }
 
-    if (!bucket) continue;
+    // Candle did not fit, attempt to find the correct bucket to place it.
+    const index = spans.findIndex(
+      (s) => s.start.toISOString() < candle.openTimeInISO,
+    );
+    if (index >= 0) {
+      //console.log(`    found at index: ${index}, value: ${buckets[index]}`)
+      spans.splice(0, index);
+      bucketPos += index;
+    }
 
-    // Match the candles minutes to the proper place in the array.
-    if (cDateMin % bucketSize === bucket.candles.length) {
-      // Push the candle into the bucket.
-      bucket.candles.push(candles[i]);
+    if (spans.length === 0) {
+      console.log(`\n RAN OUT OF SPANS FOR CANDLES.`);
+      break;
     }
   }
 
-  // Add the last bucket if it isn't already added.
-  let cbLength = candleBuckets.length;
-  if (bucket && bucket.candles.length === bucketSize) {
-    const lastBucket = candleBuckets[cbLength - 1];
-    if (!lastBucket) {
-      candleBuckets.push(bucket);
-      cbLength++;
-    } else if (lastBucket.timestampISO !== bucket.timestampISO) {
-      candleBuckets.push(bucket);
-      cbLength++;
-    }
-  }
-
-  // Check the amount of buckets created versus what was expected.
-  const expectedCount = lengthMs / 1000 / 60 / candleSize / bucketSize;
-  let missing = expectedCount - cbLength;
-  if (missing < 0) {
-    dynamicWarn(`unsure how missing is negative value: ${missing}`);
-    missing = 0;
-  }
-
-  const buckets = processor(candleBuckets);
-  return {buckets: buckets.reverse(), missing: missing};
+  // Convert the candles in the buckets into usable compiled data.
+  const data = processor(buckets.reverse());
+  data.sort((a, b) => (a.timestampISO < b.timestampISO ? -1 : 1));
+  return data;
 }
 
 /**
@@ -126,60 +131,31 @@ export function periodBucketCount(
 export function newBucketData(timestamp: string): BucketData {
   return {
     timestampISO: timestamp,
-    priceAvg: 0,
-    priceLow: 0,
-    priceHigh: 0,
-    priceClose: 0,
+    dataPoints: 0,
     volume: 0,
-    closeStd: 0,
-    diffStd: 0,
-    volumeStd: 0,
+    price: {
+      avg: 0,
+      low: 0,
+      high: 0,
+      close: 0,
+    },
+    lastCandle: {
+      close: 0,
+      low: 0,
+      high: 0,
+      volume: 0,
+    },
+    deviation: {
+      close: 0,
+      volume: 0,
+    },
   };
-}
-
-/**
- * Appends bucket data to database, creating product if it does not exist.
- *
- * @param {string} productId - Product/pair to update.
- * @param {BucketData[]} data - Bucket data in array format to append.
- * @param {number} maxCount - Maximum amount of data to store in database.
- */
-export async function saveBucketData(
-  productId: string,
-  data: BucketData[],
-  maxCount: number,
-) {
-  await ProductDataModel.updateOne(
-    {productId: productId, useSandbox: USE_SANDBOX},
-    {$push: {bucketData: {$each: data, $slice: -maxCount}}},
-    {upsert: true},
-  );
-}
-
-/**
- * Loads all bucket data from mongodb.
- *
- * @returns {Promise<Record<string, BucketData[]>>} Bucket data for each product/pairs.
- */
-export async function loadBucketData(): Promise<Record<string, BucketData[]>> {
-  const data: Record<string, BucketData[]> = {};
-
-  const products = await ProductDataModel.find(
-    {useSandbox: USE_SANDBOX},
-    null,
-    {lean: true},
-  );
-  for (const p of products) {
-    data[p.productId] = p.bucketData;
-  }
-
-  return data;
 }
 
 /**
  * Get the average amount of buckets for all products/pairs.
  *
- * @param {Record<string, BucketData[]>} Data to compute averages from.
+ * @param {Record<string, BucketData[]>} data - Data to compute averages from.
  * @returns {number} Average per product/pair.
  */
 export function getAvgBuckets(data: Record<string, BucketData[]>): number {
@@ -196,22 +172,49 @@ export function getAvgBuckets(data: Record<string, BucketData[]>): number {
 
 function processor(candleBuckets: CandleBucket[]): BucketData[] {
   const buckets: BucketData[] = [];
-  for (const candleBucket of candleBuckets) {
+  for (let i = 0; i < candleBuckets.length; i++) {
+    const candleBucket = candleBuckets[i];
+
+    //Attempt to replace any missing buckets with candle data from another.
+    if (candleBucket.candles.length === 0) {
+      if (i == 0) continue;
+      for (let j = i - 1; j >= 0; j--) {
+        if (candleBuckets[j].candles.length > 0) {
+          candleBucket.candles = candleBuckets[j].candles;
+        }
+      }
+
+      // TODO: Throw an error? Did not find a replacement.
+      if (candleBucket.candles.length === 0) continue;
+    }
+
     let data: BucketData = newBucketData(candleBucket.timestampISO);
 
-    // 60 minute information.
-    let candles = candleBucket.candles;
-    let candleData = getStd(candles);
-    data.closeStd = candleData.close;
-    data.diffStd = candleData.diff;
-    data.volumeStd = candleData.volume;
+    let high = 0;
+    let low = -1;
+    let totalClose = 0;
+    let totalVolume = 0;
+    for (const c of candleBucket.candles) {
+      if (c.high > high) high = c.high;
+      if (low < 0 || c.low < low) low = c.low;
+      totalClose += c.close;
+      totalVolume += c.volume;
+    }
 
+    data.dataPoints = candleBucket.candles.length;
     // total volume, low, and high.
-    data.volume = getTotalVolume(candles);
-    data.priceAvg = getCloseAvg(candles);
-    data.priceLow = getPriceLow(candles);
-    data.priceHigh = getPriceHigh(candles);
-    data.priceClose = candles[candles.length - 1].close;
+    data.volume = totalVolume;
+    data.price.avg = totalClose / data.dataPoints;
+    data.price.low = low;
+    data.price.high = high;
+    data.price.close = candleBucket.candles[0].close;
+    data.lastCandle.close = candleBucket.candles[0].close;
+    data.lastCandle.low = candleBucket.candles[0].low;
+    data.lastCandle.high = candleBucket.candles[0].high;
+    data.lastCandle.volume = candleBucket.candles[0].volume;
+
+    data.deviation.close = getCloseStd(candleBucket.candles);
+    data.deviation.volume = getVolumeStd(candleBucket.candles);
 
     buckets.push(data);
   }
@@ -219,22 +222,7 @@ function processor(candleBuckets: CandleBucket[]): BucketData[] {
   return buckets;
 }
 
-function getCloseAvg(candles: Candle[]): number {
-  const prices: number[] = candles.map((c) => {
-    return c.close;
-  });
-  return mean(prices);
-}
-
-function getPriceLow(candles: Candle[]): number {
-  return candles.reduce((a, b) => (a.low < b.low ? a : b)).low;
-}
-
-function getPriceHigh(candles: Candle[]): number {
-  return candles.reduce((a, b) => (a.high > b.high ? a : b)).high;
-}
-
-function getCloseStd(candles: Candle[]): number {
+function getCloseStd(candles: SimpleCandle[]): number {
   const values = [];
   for (const c of candles) {
     values.push(c.close);
@@ -243,7 +231,7 @@ function getCloseStd(candles: Candle[]): number {
   return std(...values);
 }
 
-function getDiffStd(candles: Candle[]): number {
+function getDiffStd(candles: SimpleCandle[]): number {
   const values = [];
   for (const c of candles) {
     const change = Math.abs(c.high - c.low);
@@ -253,7 +241,7 @@ function getDiffStd(candles: Candle[]): number {
   return std(...values);
 }
 
-function getVolumeStd(candles: Candle[]): number {
+function getVolumeStd(candles: SimpleCandle[]): number {
   const values = [];
   for (const c of candles) {
     values.push(c.volume);
@@ -262,13 +250,7 @@ function getVolumeStd(candles: Candle[]): number {
   return std(...values);
 }
 
-function getTotalVolume(candles: Candle[]): number {
-  return candles.reduce((a, b) => {
-    return a + b.volume;
-  }, 0);
-}
-
-function getStd(candles: Candle[]): {
+function getStd(candles: SimpleCandle[]): {
   close: number;
   diff: number;
   volume: number;

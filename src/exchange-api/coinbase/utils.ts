@@ -1,53 +1,33 @@
-import {Candle, CandleGranularity} from 'coinbase-pro-node';
-import {AnonymousClient} from './anonymous_client';
+import {mean} from 'mathjs';
 
 function smooth(range: number): number {
   return 2 / (range + 1);
 }
 
-function ema(
-  tIndex: number,
-  range: number,
-  data: number[],
-): number | undefined {
-  if (!data[tIndex - 1] || tIndex - range < 0) return undefined;
-  const k = smooth(range);
+export function ema(closes: number[], mRange: number): number[] {
+  if (closes.length < mRange) return [];
 
-  const price = data[tIndex];
-  const yEMA = ema(tIndex - 1, range, data) || data[tIndex - 1];
+  const k = smooth(mRange);
+  const sma = mean(closes.slice(0, mRange));
+  let value = sma;
 
-  return (price - yEMA) * k + yEMA;
-}
-
-/**
- * Get the EMA-(N), N being days, of a product/pair, using ONE HOUR candles.
- *
- * @param {string} productId - A string representing a product/pair.
- * @param {number} days - Amount of days of the period of time.
- * @param {string} endISO - Timestamp to finish at.
- * @param {number} decimals - Decimal places to round the number to.
- * @returns {Promise<number>} EMA-(N) value if product exists, -1 if not.
- */
-export async function getEMA(
-  productId: string,
-  days: number,
-  endISO: string = '',
-): Promise<number> {
-  let endDate = new Date();
-  if (endISO !== '') {
-    endDate = new Date(endISO);
+  const emas: number[] = [sma];
+  for (let i = mRange; i < closes.length; i++) {
+    value = k * closes[i] + (1 - k) * value;
+    emas.push(value);
   }
 
-  const startDate = new Date(endDate.getTime());
-  startDate.setDate(startDate.getDate() - days);
+  return emas;
+}
 
-  const candles: Candle[] = await AnonymousClient.getCandles(
-    productId,
-    CandleGranularity.ONE_HOUR,
-    endDate,
-    startDate,
-  );
+export function sma(closes: number[], mRange: number): number[] {
+  if (closes.length < mRange) return [];
 
-  const closes: number[] = candles.map((c) => c.close);
-  return ema(closes.length - 1, days, closes) ?? -1;
+  const smas: number[] = [];
+  for (let i = 0; i < closes.length - mRange + 1; i++) {
+    const value = mean(closes.slice(i, i + mRange));
+    smas.push(value);
+  }
+
+  return smas;
 }

@@ -28,6 +28,10 @@ export class Stopwatch {
     return accumulated / 1000;
   }
 
+  print(): number {
+    return (Date.now() - this.startMs) / 1000;
+  }
+
   static msToMin(ms: number): number {
     return ms / 1000 / 60;
   }

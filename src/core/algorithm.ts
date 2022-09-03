@@ -16,12 +16,12 @@ export function dynamicAlgorithm(
   if (rankings.length === 0) return [];
 
   // Required: only positive moving products.
-  rankings = rankings.filter((r) => r.last.movement > 1);
-  rankings.sort((a, b) => (a.last.movement > b.last.movement ? -1 : 1));
+  //rankings = rankings.filter((r) => r.last.movement > 1);
+  //rankings.sort((a, b) => (a.last.movement > b.last.movement ? -1 : 1));
 
   // Required: entry point >= candle difference.
   rankings = rankings.filter(
-    (r) => r.last.diff >= r.last.close * buyPercentage,
+    (r) => r.last.high - r.last.low >= r.last.close * buyPercentage,
   );
 
   // Preferred: attempt to get movement higher than avg.
@@ -40,9 +40,9 @@ export function dynamicAlgorithm(
   //}
 
   // Required: ema has to be less than last close.
-  rankings.filter((r) => {
-    if (r.ema14 > 0 && r.last.close > r.ema14) return r;
-  });
+  //rankings.filter((r) => {
+  //if (r.ema14 > 0 && r.last.close > r.ema14) return r;
+  //});
 
   return rankings;
 }

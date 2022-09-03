@@ -103,7 +103,13 @@ export class Products {
       const quoteId = product.quote_currency;
 
       // Do not get disabled trades if selected.
-      if (!disabledTrades && product.trading_disabled) {
+      if (
+        !disabledTrades &&
+        (product.trading_disabled ||
+          product.post_only ||
+          product.limit_only ||
+          product.cancel_only)
+      ) {
         continue;
       }
 

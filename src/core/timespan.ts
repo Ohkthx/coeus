@@ -123,7 +123,7 @@ export function printSpan(span: Timespan) {
   dynamicInfo(inspect(span, false, 2, true));
 }
 
-function setToZero(ts: Date, candleSize: number): Date {
+export function setToZero(ts: Date, candleSize: number): Date {
   ts.setSeconds(0);
   ts.setMilliseconds(0);
 

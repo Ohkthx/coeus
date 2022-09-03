@@ -1,24 +1,25 @@
-import {abs, mean, sum} from 'mathjs';
-import {dynamicDebug, dynamicErr} from '.';
-import {APP_DEBUG} from '..';
-import {AnonymousClient, getEMA} from '../exchange-api/coinbase';
-import {toFixed as fix} from '../product';
-import {toFixed} from '../utils';
-import {IntervalData} from './interval';
+import {multiply, sum} from 'mathjs';
+import {CLOSE_WEIGHT, DIFF_WEIGHT, dynamicErr, VOLUME_WEIGHT} from '.';
+import {ema, sma} from '../exchange-api/coinbase';
+import {toFixed} from '../product';
+import {toFixed as quickFix} from '../utils';
+import {BucketData} from './bucket';
 
 export interface ProductRanking {
   productId: string;
   ranking: number;
-  score: number;
-  ema7: number;
-  ema14: number;
   dataPoints: number;
-  last: {
-    movement: number;
-    close: number;
-    stdClose: number;
-    diff: number;
-    stdDiff: number;
+  sma: {
+    twelve: number;
+    twentysix: number;
+    fifty: number;
+    twohundred: number;
+  };
+  ema: {
+    twelve: number;
+    twentysix: number;
+    fifty: number;
+    twohundred: number;
   };
   rating: {
     value: number;
@@ -26,175 +27,131 @@ export interface ProductRanking {
     diff: number;
     volume: number;
   };
+  last: {
+    volume: number;
+    close: number;
+    high: number;
+    low: number;
+    avg: number;
+  };
 }
 
 /**
- * Sorts each interval data in each interval based on the rating,
+ * Sorts each product ranking based on the rating,
  * keeping the top selected.
  *
- * @param {IntervalData[][]} intervals - Intervals to process.
- * @param {number} keep - Top interval data to keep.
+ * @param {ProductRanking[]} rankings - Product rankings to process.
+ * @param {number} keep - Top ranking data to keep.
  */
-export function sortIntervals(intervals: IntervalData[][], keep: number) {
-  for (let i = 0; i < intervals.length; i++) {
-    let data = intervals[i];
-    data.sort((a, b) => (a.rating > b.rating ? -1 : 1));
-    intervals[i] = data.slice(0, keep);
-  }
+export function sortRankings(rankings: ProductRanking[], keep: number) {
+  let sortedRankings: ProductRanking[] = rankings;
+  sortedRankings.sort((a, b) => (a.rating > b.rating ? -1 : 1));
+  if (keep > 0) sortedRankings = rankings.slice(0, keep);
+  return sortedRankings;
 }
 
 /**
  * Creates rankings from intervals provided.
  *
- * @param {IntervalData[][]} intervals - Intervals to process.
- * @param {string} endISO - Ending timestamp for EMA calculation.
- * @returns {Promise<ProductRanking[]>} Rankings of all products, sorted.
+ * @returns {ProductRanking[]} Rankings of all products, sorted.
  */
-export async function makeRankings(
-  intervals: IntervalData[][],
-  endISO: string,
-): Promise<ProductRanking[]> {
+export function makeRankings(
+  productData: Map<string, BucketData[]>,
+): ProductRanking[] {
   const rankings: ProductRanking[] = [];
 
-  // Get the common interval data that is persistent over multiple intervals.
-  const intersection = intersectMany(...intervals);
+  for (const pId of productData.keys()) {
+    const data = productData.get(pId) ?? [];
 
-  let i: number = 0;
-  for (const pId of intersection.keys()) {
-    if (APP_DEBUG) {
-      const maxLen = intersection.size.toString();
-      const pad = maxLen.length;
-      const value: string = `${(++i).toString().padEnd(pad)}`;
-      const counter = `${value} / ${maxLen.padEnd(pad)}`;
-      dynamicDebug(`[${counter}] creating ranking for '${pId}'.`, '\r');
-    }
-
-    const data = intersection.get(pId) ?? [];
+    if (data.length === 0) continue;
 
     // Create rankings for each common interval.
-    const rank = await makeRanking(pId, endISO, 0, data);
-    rankings.push(rank);
+    try {
+      const rank = makeRanking(pId, data);
+      rankings.push(rank);
+    } catch (err) {
+      let errMsg = 'unknown error';
+      if (err instanceof Error) errMsg = err.message;
+      dynamicErr(errMsg);
+    }
   }
 
   // Sort the rankings based on their current rating values.
-  return rankings.sort((a, b) => (a.rating.value > b.rating.value ? -1 : 1));
+  rankings.sort((a, b) => (a.rating.value > b.rating.value ? -1 : 1));
+  for (let i = 0; i < rankings.length; i++) rankings[i].ranking = i + 1;
+
+  return rankings;
 }
 
 /**
  * Convert Interval Data into an actual ranking.
  */
-async function makeRanking(
-  productId: string,
-  endISO: string,
-  rank: number,
-  data: IntervalData[],
-): Promise<ProductRanking> {
-  const ratings: number[] = data.map((s) => s.rating);
-  const rating: number = mean(ratings);
+function makeRanking(productId: string, data: BucketData[]): ProductRanking {
+  const dataPoints = sum(data.map((d) => d.dataPoints));
+  const closes = data.map((d) => d.price.close);
 
-  const closes: number[] = data.map((s) => s.close);
-  const closeVal: number = mean(closes);
+  //const closeAvg = mean(closes);
+  //const volumeAvg = mean(data.map((d) => d.volume));
+  //const diffAvg = mean(data.map((d) => d.price.high - d.price.low));
 
-  const diffs: number[] = data.map((s) => s.diff);
-  const diffVal: number = mean(diffs);
+  const last = data[data.length - 1];
+  const closeRatio = last.lastCandle.close / last.price.avg;
+  const volumeRatio = last.lastCandle.volume / (last.volume / last.dataPoints);
+  const diffRatio =
+    (last.lastCandle.high - last.lastCandle.low) /
+    (last.price.high - last.price.low);
 
-  const volumes: number[] = data.map((s) => s.volume);
-  const volumeVal: number = mean(volumes);
+  // Factor in the weights to create a rating.
+  const rating: number =
+    multiply(closeRatio, CLOSE_WEIGHT) +
+    multiply(volumeRatio, VOLUME_WEIGHT) +
+    multiply(diffRatio, DIFF_WEIGHT);
 
-  const dataPoints: number[] = data.map((s) => s.data.length);
-  const dataPointVal: number = sum(dataPoints);
+  const lastValue = (values: number[]): number => {
+    if (values.length === 0) return -1;
+    return values[values.length - 1];
+  };
 
-  const lastIntervalData: IntervalData = data[data.length - 1];
-  const lastDataEntry = lastIntervalData.data.lastEntry;
+  // Get the SMAs
+  const sma1 = sma(closes, 12);
+  const sma2 = sma(closes, 26);
+  const sma3 = sma(closes, 50);
+  const sma4 = sma(closes, 200);
 
-  const lastClose = lastDataEntry.priceClose;
-  const lastDiff = abs(lastDataEntry.priceHigh - lastDataEntry.priceLow);
-  const lastStdClose = lastDataEntry.closeStd;
-  const lastStdDiff = lastDataEntry.diffStd;
-
-  // Get the movement based on current active orders.
-  const orderCounts = await AnonymousClient.getOrderCount(productId);
-  const movement = orderCounts.buys / orderCounts.sells;
-
-  // Create the EMAs, -1 indicates an error.
-  let ema7 = -1;
-  let ema14 = -1;
-  try {
-    ema7 = await getEMA(productId, 7, endISO);
-    ema14 = await getEMA(productId, 14, endISO);
-  } catch (err) {
-    if (err instanceof Error) dynamicErr(err.message);
-    else {
-      dynamicErr(`odd error... ${err}`);
-    }
-  }
+  // Get the EMAs
+  const ema1 = ema(closes, 12);
+  const ema2 = ema(closes, 26);
+  const ema3 = ema(closes, 50);
+  const ema4 = ema(closes, 200);
 
   return {
     productId: productId,
-    ranking: rank,
-    score: 0,
-    ema7: fix(productId, ema7, 'quote'),
-    ema14: fix(productId, ema14, 'quote'),
-    dataPoints: dataPointVal,
-    last: {
-      movement: toFixed(movement, 4),
-      close: lastClose,
-      stdClose: lastStdClose,
-      diff: lastDiff,
-      stdDiff: lastStdDiff,
+    ranking: -1,
+    dataPoints: dataPoints,
+    sma: {
+      twelve: toFixed(productId, lastValue(sma1), 'quote'),
+      twentysix: toFixed(productId, lastValue(sma2), 'quote'),
+      fifty: toFixed(productId, lastValue(sma3), 'quote'),
+      twohundred: toFixed(productId, lastValue(sma4), 'quote'),
+    },
+    ema: {
+      twelve: toFixed(productId, lastValue(ema1), 'quote'),
+      twentysix: toFixed(productId, lastValue(ema2), 'quote'),
+      fifty: toFixed(productId, lastValue(ema3), 'quote'),
+      twohundred: toFixed(productId, lastValue(ema4), 'quote'),
     },
     rating: {
-      value: toFixed(rating, 4),
-      close: toFixed(closeVal, 4),
-      diff: toFixed(diffVal, 4),
-      volume: toFixed(volumeVal, 4),
+      value: quickFix(rating, 4),
+      close: quickFix(closeRatio, 4),
+      diff: quickFix(diffRatio, 4),
+      volume: quickFix(volumeRatio, 4),
+    },
+    last: {
+      volume: toFixed(productId, last.volume),
+      close: last.price.close,
+      high: last.price.high,
+      low: last.price.low,
+      avg: toFixed(productId, last.price.avg, 'quote'),
     },
   };
-}
-
-/**
- * Find the common products/pairs that exist in each interval.
- */
-function intersectMany(...arrs: IntervalData[][]): Map<string, IntervalData[]> {
-  const results = new Map<string, IntervalData[]>();
-  if (arrs.length < 2) return results;
-
-  // Gets the intersection between two arrays comparing product ids.
-  const intersection = (arr1: IntervalData[], arr2: IntervalData[]) => {
-    const res: IntervalData[] = [];
-    for (const val of arr1) {
-      if (arr2.some((p) => p.productId === val.productId)) {
-        res.push(val);
-      }
-    }
-    return res;
-  };
-
-  // Pop the first array out to compare to 2nd, 3rd, 4th, etc.
-  let res = arrs[0].slice();
-
-  // Process the arrays, comparting to each other
-  for (let i = 1; i < arrs.length; i++) {
-    res = intersection(res, arrs[i]);
-  }
-
-  // Combine the results into a [ProductId]: Intervals[] record.
-  for (const r of res) {
-    const pId: string = r.productId;
-    results.set(pId, []);
-
-    // Extract the data for the similar products from each interval it exists in.
-    for (let i = 0; i < arrs.length; i++) {
-      const intervalData = arrs[i].find((s) => s.productId === pId);
-      if (!intervalData) {
-        dynamicErr('Impossible to happen... no interval data.');
-        continue;
-      }
-
-      // Add the data to the rest of it.
-      results.get(pId)?.push(intervalData);
-    }
-  }
-
-  return results;
 }

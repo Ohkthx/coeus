@@ -1,22 +1,26 @@
-import {DynamicState, StateConfig} from './core';
+import {State} from './core';
 import {delay} from './utils';
 import {connect} from 'mongoose';
 import {ConsoleState} from './commands';
 import {HTTPServer} from './rest';
 import {APP_DEBUG, DB_DATABASE, USE_SANDBOX, appInfo, appErr, appWarn} from '.';
+import {CandleOpts, ONE_DAY_TO_S} from './core/candle';
+import {CandleGranularity} from 'coinbase-pro-node';
 
 appInfo(`APP_DEBUG set to '${APP_DEBUG}'`);
 appInfo(`DB_DATABASE set to '${DB_DATABASE}'`);
 appInfo(`USE_SANDBOX set to '${USE_SANDBOX}'`);
 
-// DynamicState Settings.
-const DYNAMIC_OPTS: StateConfig = {
-  periodSpan: 14, // in DAYS.
-  candleSize: 5, // in MINUTES.
-  bucketSize: 3, // amount per bucket.
-  intervals: 6, // amount of intervals to process.
-  rankKeep: 50, // Top # to keep in rankings.
-};
+const GRANULARITY: number = CandleGranularity.FIVE_MINUTES;
+const CANDLES_PER_BUCKET: number = ONE_DAY_TO_S / GRANULARITY;
+const MAX_BUCKETS: number = 300;
+
+const CANDLE_OPTS = new CandleOpts(
+  GRANULARITY, // Size of each candle in seconds.
+  new Date(), // Time to end at.
+  CANDLES_PER_BUCKET, // Amount of candles per bucket.
+  MAX_BUCKETS, // Amount of buckets.
+);
 
 let sigintFired: number = 0; // Prevents spam messages from occurring.
 process.on('SIGINT', async () => {
@@ -30,10 +34,10 @@ process.on('SIGINT', async () => {
 
 async function killAll() {
   // Disable the dynamic update algorithm.
-  DynamicState.disable();
-  if (DynamicState.isUpdating) {
+  State.disable();
+  if (State.isUpdating) {
     appInfo('[Dynamic Algorithm] currently updating... waiting.');
-    while (DynamicState.isUpdating) await delay(250);
+    while (State.isUpdating) await delay(250);
   }
   appInfo('[Dynamic Algorithm] disabled.');
 
@@ -56,7 +60,7 @@ async function killAll() {
   ConsoleState.loadAll();
 
   // Initialize the Dynamic Algorithm.
-  await DynamicState.initWrapper(DYNAMIC_OPTS);
+  await State.initWrapper(CANDLE_OPTS);
 
   // Start the REST server.
   await HTTPServer.start();

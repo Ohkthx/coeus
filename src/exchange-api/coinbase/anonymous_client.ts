@@ -50,6 +50,10 @@ export class AnonymousClient {
         start: start.toISOString(),
       })
       .then((data) => {
+        if (data) {
+          // Make sure our data is oldest to newest.
+          data.sort((a, b) => (a.openTimeInISO < b.openTimeInISO ? -1 : 1));
+        }
         return data ?? [];
       })
       .catch((err) => {
