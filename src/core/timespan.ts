@@ -1,5 +1,5 @@
 import {inspect} from 'util';
-import {dynamicInfo} from '.';
+import {coreInfo} from '.';
 
 export interface Timespan {
   granularity: number;
@@ -44,74 +44,25 @@ export function createSpan(start: string, end: string): Timespan {
  * Get a span from a past date to the current moment, cleaning the times.
  *
  * @param {Date} last - Date of the past.
- * @param {number} candleSize - Size/length of candles to set intervals.
+ * @param {number} interval - Length of each interval in minutes.
+ * @param {Date} nowOverride - Overrides the current moment with user provided.
  * @returns {Timespan} Span of time between date supplied and now.
  */
 export function getSpan(
   last: Date,
-  candleSize: number,
+  interval: number,
   nowOverride: Date = new Date(),
 ): Timespan {
   const now = nowOverride;
-  const current = setToZero(now, candleSize);
-  last = setToZero(last, candleSize);
+  const current = setToZero(now, interval);
+  last = setToZero(last, interval);
 
   return {
-    granularity: candleSize * 60,
+    granularity: interval * 60,
     start: last,
     end: current,
     lengthMs: current.getTime() - last.getTime(),
   };
-}
-
-/**
- * Takes in timespan and resizes it to fit proper increments of time.
- *
- * @param {Timespan} span - Span of time to modify.
- * @param {number} maxMinutes - Maximum amount of MINUTES the span consists of.
- * @returns {Timespan} Corrected timespan that fits criteria provided.
- */
-export function resizeSpan(span: Timespan, maxMinutes: number): Timespan {
-  const {end, lengthMs} = fixSpan(span);
-  const maxSizeMs = maxMinutes * 60 * 1000;
-
-  if (lengthMs > maxSizeMs) {
-    // Span is too large, resize to maximum.
-    span.start = setToPast(end, maxMinutes);
-    span.lengthMs = span.end.getTime() - span.start.getTime();
-  }
-
-  return span;
-}
-
-/**
- * Gets the estimated amount of items within a given span.
- *
- * @param {Timespan} span - Span of time to calculate from.
- * @returns {number} Amount of items that should exist.
- */
-export function estimatedSpanCount(span: Timespan): number {
-  const {lengthMs, granularity} = fixSpan(span);
-
-  // Get the difference.
-  const sec = lengthMs / 1000;
-
-  return sec / granularity;
-}
-
-/**
- * Gets the estimated amount of items within a given period.
- *
- * @param {number} periodSpan - Span of time in DAYS to calculate from.
- * @param {number} granularity - Length of individual items in SECONDS.
- * @returns {number} Amount of items that should exist.
- */
-export function estimatedPeriodCount(
-  periodSpan: number,
-  granularity: number,
-): number {
-  const lengthSec = periodSpan * 24 * 60 * 60;
-  return lengthSec / granularity;
 }
 
 /**
@@ -120,36 +71,26 @@ export function estimatedPeriodCount(
  * @param {Timespan} span - Data to print.
  */
 export function printSpan(span: Timespan) {
-  dynamicInfo(inspect(span, false, 2, true));
+  coreInfo(inspect(span, false, 2, true));
 }
 
-export function setToZero(ts: Date, candleSize: number): Date {
+/**
+ * Sets the minutes to the last length of interval (min),  sets seconds and
+ * milliseconds to zero.
+ *
+ * @param {Date} ts - Current timestamp to set to zero.
+ * @param {number} interval - Size of the intervals in minutes.
+ * @returns {Date} Date that has been set to zero.
+ */
+export function setToZero(ts: Date, interval: number): Date {
   ts.setSeconds(0);
   ts.setMilliseconds(0);
 
   // Set the minutes to a number divisible by candleSize.
-  const remainder = ts.getMinutes() % candleSize;
+  const remainder = ts.getMinutes() % interval;
   if (remainder !== 0) {
     ts.setMinutes(ts.getMinutes() - remainder);
   }
 
   return ts;
-}
-
-function fixSpan(span: Timespan): Timespan {
-  let {start, end} = span;
-
-  if (end.getTime() < start.getTime()) {
-    // Swap the timestamps so that start is older, end is newer.
-    const temp = end;
-    end = start;
-    start = temp;
-  }
-
-  return {
-    granularity: span.granularity,
-    start: start,
-    end: end,
-    lengthMs: span.lengthMs,
-  };
 }

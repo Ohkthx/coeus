@@ -1,6 +1,5 @@
-import {multiply, sum} from 'mathjs';
-import {CLOSE_WEIGHT, DIFF_WEIGHT, dynamicErr, VOLUME_WEIGHT} from '.';
-import {ema, sma} from '../exchange-api/coinbase';
+import {mean, multiply, sum} from 'mathjs';
+import {CLOSE_WEIGHT, DIFF_WEIGHT, coreErr, VOLUME_WEIGHT} from '.';
 import {toFixed} from '../product';
 import {toFixed as quickFix} from '../utils';
 import {BucketData} from './bucket';
@@ -42,8 +41,12 @@ export interface ProductRanking {
  *
  * @param {ProductRanking[]} rankings - Product rankings to process.
  * @param {number} keep - Top ranking data to keep.
+ * @returns {ProductRanking[]} Sorted rankings.
  */
-export function sortRankings(rankings: ProductRanking[], keep: number) {
+export function sortRankings(
+  rankings: ProductRanking[],
+  keep: number,
+): ProductRanking[] {
   let sortedRankings: ProductRanking[] = rankings;
   sortedRankings.sort((a, b) => (a.rating > b.rating ? -1 : 1));
   if (keep > 0) sortedRankings = rankings.slice(0, keep);
@@ -53,6 +56,7 @@ export function sortRankings(rankings: ProductRanking[], keep: number) {
 /**
  * Creates rankings from intervals provided.
  *
+ * @param {Map<string, BucketData[]>} productData - Data for several products in a map.
  * @returns {ProductRanking[]} Rankings of all products, sorted.
  */
 export function makeRankings(
@@ -60,6 +64,7 @@ export function makeRankings(
 ): ProductRanking[] {
   const rankings: ProductRanking[] = [];
 
+  // Iterate each Product Id for processing its bucketed data.
   for (const pId of productData.keys()) {
     const data = productData.get(pId) ?? [];
 
@@ -72,7 +77,7 @@ export function makeRankings(
     } catch (err) {
       let errMsg = 'unknown error';
       if (err instanceof Error) errMsg = err.message;
-      dynamicErr(errMsg);
+      coreErr(errMsg);
     }
   }
 
@@ -84,17 +89,18 @@ export function makeRankings(
 }
 
 /**
- * Convert Interval Data into an actual ranking.
+ * Convert Bucket Data into an actual ranking.
+ *
+ * @param {string} productId - Product/pair to process.
+ * @param {BucketData[]} data - Bucket data to process and compile into a ranking.
+ * @returns {ProductRanking} Ranking of the product provided.
  */
 function makeRanking(productId: string, data: BucketData[]): ProductRanking {
   const dataPoints = sum(data.map((d) => d.dataPoints));
   const closes = data.map((d) => d.price.close);
-
-  //const closeAvg = mean(closes);
-  //const volumeAvg = mean(data.map((d) => d.volume));
-  //const diffAvg = mean(data.map((d) => d.price.high - d.price.low));
-
   const last = data[data.length - 1];
+
+  // Calculate the ratios from last candles data.
   const closeRatio = last.lastCandle.close / last.price.avg;
   const volumeRatio = last.lastCandle.volume / (last.volume / last.dataPoints);
   const diffRatio =
@@ -154,4 +160,56 @@ function makeRanking(productId: string, data: BucketData[]): ProductRanking {
       avg: toFixed(productId, last.price.avg, 'quote'),
     },
   };
+}
+
+/**
+ * 'k' value for calculating EMA.
+ *
+ * @param {number} mRange - Amount of days to smooth over.
+ * @returns {number} Smoothing 'k' value.
+ */
+function smooth(mRange: number): number {
+  return 2 / (mRange + 1);
+}
+
+/**
+ * Calculates the EMA from provided closes over a range of time.
+ *
+ * @param {number[]} closes - Closes over each day.
+ * @param {number} mRange - Amount of days to smooth over.
+ * @returns {number[]} EMA for each data point calculated. Last is most recent.
+ */
+export function ema(closes: number[], mRange: number): number[] {
+  if (closes.length < mRange) return [];
+
+  const k = smooth(mRange);
+  const sma = mean(closes.slice(0, mRange));
+  let value = sma;
+
+  const emas: number[] = [sma];
+  for (let i = mRange; i < closes.length; i++) {
+    value = k * closes[i] + (1 - k) * value;
+    emas.push(value);
+  }
+
+  return emas;
+}
+
+/**
+ * Calculate the SMA from the provided closes over a range of time.
+ *
+ * @param {number[]} closes - Closes over each day.
+ * @param {number} mRange - Amount of days to calculate the SMA on.
+ * @returns {number[]} SMA for each data point calculated. Last is most recent.
+ */
+export function sma(closes: number[], mRange: number): number[] {
+  if (closes.length < mRange) return [];
+
+  const smas: number[] = [];
+  for (let i = 0; i < closes.length - mRange + 1; i++) {
+    const value = mean(closes.slice(i, i + mRange));
+    smas.push(value);
+  }
+
+  return smas;
 }

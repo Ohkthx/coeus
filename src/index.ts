@@ -5,10 +5,8 @@ import {logger} from './logger';
 // Load the environment variables into process.env
 envLoad();
 
-export const DEFAULT_PROFILE_NAME = 'tradeBot';
 export const APP_DEBUG = parseBoolean(process.env.DEBUG!);
-export const DYNAMIC_DEBUG = parseBoolean(process.env.DYNAMIC_DEBUG!);
-export const DB_DATABASE = process.env.DB_DATABASE ?? 'autostonks';
+export const DB_DATABASE = process.env.DB_DATABASE ?? 'coeus';
 export const USE_SANDBOX = parseBoolean(process.env.USE_SANDBOX!);
 
 export interface DbCompat {

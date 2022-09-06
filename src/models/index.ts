@@ -1,8 +1,3 @@
-export enum Mode {
-  STATIC = 'static',
-  DYNAMIC = 'dynamic',
-}
-
-export * from './dynamic';
+export * from './candle';
 export * from './product';
 export * from './currency';

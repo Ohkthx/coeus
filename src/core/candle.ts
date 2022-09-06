@@ -8,6 +8,7 @@ export const ONE_DAY_TO_S: number = 86400;
 export const ONE_HOUR_TO_S: number = 3600;
 export const ONE_MINUTE_TO_S: number = 60;
 
+// All of the loaded candles for each product/pair.
 export const CANDLES = new Map<string, SimpleCandle[]>();
 
 export class CandleOpts {
@@ -16,6 +17,14 @@ export class CandleOpts {
   candlesPerBucket: number;
   totalBuckets: number;
 
+  /**
+   * Creates a new set of candle options.
+   *
+   * @param {number} granularity - Size of a candle in seconds.
+   * @param {Date} end - Final timestamp to end candle span, should be most recent.
+   * @param {number} candlesPerBucket - Amount of candles to place in each bucket.
+   * @param {number} totalBuckets - Total amount of buckets.
+   */
   constructor(
     granularity: number,
     end: Date,
@@ -28,26 +37,42 @@ export class CandleOpts {
     this.totalBuckets = totalBuckets;
   }
 
+  /**
+   * Length of a single bucket in milliseconds.
+   */
   get bucketLengthMs(): number {
     return this.candlesPerBucket * this.granularity * 1000;
   }
 
+  /**
+   * Length of all buckets in milliseconds.
+   */
   get totalLengthMs(): number {
     return this.totalCandleCount * this.granularity * 1000;
   }
 
+  /**
+   * Total amount of candles for all buckets.
+   */
   get totalCandleCount(): number {
     return this.candlesPerBucket * this.totalBuckets;
   }
 
+  /**
+   * Size of a single candle in minutes.
+   */
   get candleSizeMin(): number {
     return this.granularity / ONE_MINUTE_TO_S;
   }
 }
 
 /**
- * Obtain candles from local database and fill in missing candles from API.
+ * Obtains candles from a local database, then pull any new candles that are
+ * not present from a remote API.
  *
+ * @param {string} productId - Id of the product/pair to get candles for.
+ * @param {CandleOpts} opts - Outlines what to pull from when.
+ * @returns {Promise<{candles: SimpleCandle[]; loaded: number; pulled: number}>}
  */
 export async function getCandles(
   productId: string,
@@ -87,6 +112,7 @@ export async function getCandles(
       start,
     );
 
+    // Convert candles to SimpleCandle for storage and space reduction.
     for (const c of pulledCandles) newCandles.push(convert(c));
     pulled = newCandles.length;
     if (pulled > 0) {
@@ -108,6 +134,17 @@ export async function getCandles(
   return {candles: cleanedCandles, loaded: loaded, pulled: pulled};
 }
 
+/**
+ * Cleans CANDLES global by inserting new candles to the end of the array and
+ * removing the older candles from the beginning. Also removes candles that are too
+ * old to be used for processing.
+ *
+ * @param {SimpleCandle[]} oldCandles - Original candles in the array.
+ * @param {SimpleCandle[]} newCandles - New candles to append.
+ * @param {string} oldestTs - Oldest time a candle can be in the past.
+ * @param {number} maxCandles - Total amount of candles allowed to be kept.
+ * @returns {SimpleCandle[]} Newly cleaned, shifted, and concat'd array of candles.
+ */
 function cleanCandles(
   oldCandles: SimpleCandle[],
   newCandles: SimpleCandle[],
@@ -137,7 +174,7 @@ function cleanCandles(
  * Appends candle data to database, creating product if it does not exist.
  *
  * @param {string} productId - Product/pair to update.
- * @param {CandleData[]} data - Candles in array format to append.
+ * @param {SimpleCandle[]} data - Candles in array format to append.
  * @param {number} maxCount - Maximum amount of data to store in database.
  */
 export async function saveCandles(
@@ -156,7 +193,7 @@ export async function saveCandles(
  * Loads all candle data from mongodb.
  *
  * @param {string} productId - Product/pair to get.
- * @returns {Promise<Record<string, Candle[]>>} Candle data for each product/pairs.
+ * @returns {Promise<Record<string, SimpleCandle[]>>} Candle data for each product/pairs.
  */
 export async function loadCandleData(productId: string): Promise<CandleData> {
   let data = (await CandleDataModel.findOne(
@@ -174,6 +211,12 @@ export async function loadCandleData(productId: string): Promise<CandleData> {
   return data;
 }
 
+/**
+ * Converts a candle from an API to a SimpleCandle which is more space friendly.
+ *
+ * @param {Candle} candle - Candle to convert.
+ * @returns {SimpleCandle} Newly created candle without overhead.
+ */
 function convert(candle: Candle): SimpleCandle {
   return {
     open: candle.open,
