@@ -1,25 +1,32 @@
-import {State} from './core';
+import {
+  CANDLE_GRANULARITY,
+  MAX_DAYS_OF_DATA,
+  ONE_DAY_TO_S,
+  State,
+} from './core';
 import {delay} from './utils';
 import {connect} from 'mongoose';
 import {ConsoleState} from './commands';
 import {HTTPServer} from './rest';
 import {APP_DEBUG, DB_DATABASE, USE_SANDBOX, appInfo, appErr, appWarn} from '.';
-import {CandleOpts, ONE_DAY_TO_S} from './core/candle';
-import {CandleGranularity} from 'coinbase-pro-node';
+import {DataOpts} from './core/opts';
 
 appInfo(`APP_DEBUG set to '${APP_DEBUG}'`);
 appInfo(`DB_DATABASE set to '${DB_DATABASE}'`);
 appInfo(`USE_SANDBOX set to '${USE_SANDBOX}'`);
 
-const GRANULARITY: number = CandleGranularity.FIVE_MINUTES;
-const CANDLES_PER_BUCKET: number = ONE_DAY_TO_S / GRANULARITY;
-const MAX_BUCKETS: number = 300;
+const CANDLES_PER_BUCKET: number = ONE_DAY_TO_S / CANDLE_GRANULARITY;
 
-const CANDLE_OPTS = new CandleOpts(
-  GRANULARITY, // Size of each candle in seconds.
+const DATA_OPTS = new DataOpts(
   new Date(), // Time to end at.
-  CANDLES_PER_BUCKET, // Amount of candles per bucket.
-  MAX_BUCKETS, // Amount of buckets.
+  {
+    granularity: CANDLE_GRANULARITY, // Size of each candle in seconds.
+    pullNew: true, // Pull new candle data or not.
+  },
+  {
+    candlesPer: CANDLES_PER_BUCKET, // Amount of candles per bucket.
+    total: MAX_DAYS_OF_DATA, // Amount of buckets.
+  },
 );
 
 let sigintFired: number = 0; // Prevents spam messages from occurring.
@@ -33,13 +40,13 @@ process.on('SIGINT', async () => {
 });
 
 async function killAll() {
-  // Disable the dynamic update algorithm.
+  // Disable the core.
   State.disable();
   if (State.isUpdating) {
-    appInfo('[Dynamic Algorithm] currently updating... waiting.');
+    appInfo('[core] currently updating... waiting.');
     while (State.isUpdating) await delay(250);
   }
-  appInfo('[Dynamic Algorithm] disabled.');
+  appInfo('[core] disabled.');
 
   // Kill the HTTP server.
   HTTPServer.stop();
@@ -59,8 +66,8 @@ async function killAll() {
   // Load the console commands and events.
   ConsoleState.loadAll();
 
-  // Initialize the Dynamic Algorithm.
-  await State.initWrapper(CANDLE_OPTS);
+  // Initialize the core.
+  await State.initWrapper(DATA_OPTS);
 
   // Start the REST server.
   await HTTPServer.start();

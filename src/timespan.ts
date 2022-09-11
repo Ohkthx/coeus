@@ -1,6 +1,3 @@
-import {inspect} from 'util';
-import {coreInfo} from '.';
-
 export interface Timespan {
   granularity: number;
   start: Date;
@@ -63,15 +60,6 @@ export function getSpan(
     end: current,
     lengthMs: current.getTime() - last.getTime(),
   };
-}
-
-/**
- * Prints a timespans data to console.
- *
- * @param {Timespan} span - Data to print.
- */
-export function printSpan(span: Timespan) {
-  coreInfo(inspect(span, false, 2, true));
 }
 
 /**

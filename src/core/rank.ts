@@ -1,13 +1,17 @@
 import {mean, multiply, sum} from 'mathjs';
-import {CLOSE_WEIGHT, DIFF_WEIGHT, coreErr, VOLUME_WEIGHT} from '.';
+import {CLOSE_WEIGHT, DIFF_WEIGHT, VOLUME_WEIGHT} from '.';
 import {toFixed} from '../product';
 import {toFixed as quickFix} from '../utils';
 import {BucketData} from './bucket';
 
-export interface ProductRanking {
-  productId: string;
-  ranking: number;
-  dataPoints: number;
+export interface SortFilter {
+  count: number;
+  movement?: boolean;
+  close?: boolean;
+  volume?: boolean;
+}
+
+export interface DayMA {
   sma: {
     twelve: number;
     twentysix: number;
@@ -20,6 +24,12 @@ export interface ProductRanking {
     fifty: number;
     twohundred: number;
   };
+}
+
+export interface ProductRanking extends DayMA {
+  productId: string;
+  ranking: number;
+  dataPoints: number;
   rating: {
     value: number;
     close: number;
@@ -28,64 +38,45 @@ export interface ProductRanking {
   };
   last: {
     volume: number;
+    volumeAvg: number;
     close: number;
+    closeAvg: number;
     high: number;
     low: number;
-    avg: number;
+    cv: {
+      close: number;
+      volume: number;
+    };
   };
 }
 
-/**
- * Sorts each product ranking based on the rating,
- * keeping the top selected.
- *
- * @param {ProductRanking[]} rankings - Product rankings to process.
- * @param {number} keep - Top ranking data to keep.
- * @returns {ProductRanking[]} Sorted rankings.
- */
+export const UNSET_DAY_MA: DayMA = {
+  sma: {
+    twelve: -1,
+    twentysix: -1,
+    fifty: -1,
+    twohundred: -1,
+  },
+  ema: {
+    twelve: -1,
+    twentysix: -1,
+    fifty: -1,
+    twohundred: -1,
+  },
+};
+
 export function sortRankings(
   rankings: ProductRanking[],
-  keep: number,
+  filter: SortFilter,
 ): ProductRanking[] {
-  let sortedRankings: ProductRanking[] = rankings;
-  sortedRankings.sort((a, b) => (a.rating > b.rating ? -1 : 1));
-  if (keep > 0) sortedRankings = rankings.slice(0, keep);
-  return sortedRankings;
-}
+  let s: ProductRanking[] = rankings;
 
-/**
- * Creates rankings from intervals provided.
- *
- * @param {Map<string, BucketData[]>} productData - Data for several products in a map.
- * @returns {ProductRanking[]} Rankings of all products, sorted.
- */
-export function makeRankings(
-  productData: Map<string, BucketData[]>,
-): ProductRanking[] {
-  const rankings: ProductRanking[] = [];
+  if (filter.close) s = rankings.filter((r) => r.rating.close > 1);
+  if (filter.volume) s = rankings.filter((r) => r.rating.volume > 1);
+  //if (filter.movement) s = rankings.filter((r) => r.rating.movement > 1);
 
-  // Iterate each Product Id for processing its bucketed data.
-  for (const pId of productData.keys()) {
-    const data = productData.get(pId) ?? [];
-
-    if (data.length === 0) continue;
-
-    // Create rankings for each common interval.
-    try {
-      const rank = makeRanking(pId, data);
-      rankings.push(rank);
-    } catch (err) {
-      let errMsg = 'unknown error';
-      if (err instanceof Error) errMsg = err.message;
-      coreErr(errMsg);
-    }
-  }
-
-  // Sort the rankings based on their current rating values.
-  rankings.sort((a, b) => (a.rating.value > b.rating.value ? -1 : 1));
-  for (let i = 0; i < rankings.length; i++) rankings[i].ranking = i + 1;
-
-  return rankings;
+  s.sort((a, b) => (a.rating > b.rating ? -1 : 1));
+  return filter.count > 0 ? s.slice(0, filter.count) : s;
 }
 
 /**
@@ -95,14 +86,19 @@ export function makeRankings(
  * @param {BucketData[]} data - Bucket data to process and compile into a ranking.
  * @returns {ProductRanking} Ranking of the product provided.
  */
-function makeRanking(productId: string, data: BucketData[]): ProductRanking {
+export function makeRanking(
+  productId: string,
+  data: BucketData[],
+  dayMA: DayMA,
+): ProductRanking | undefined {
+  if (data.length === 0) return;
+
   const dataPoints = sum(data.map((d) => d.dataPoints));
-  const closes = data.map((d) => d.price.close);
   const last = data[data.length - 1];
 
   // Calculate the ratios from last candles data.
   const closeRatio = last.lastCandle.close / last.price.avg;
-  const volumeRatio = last.lastCandle.volume / (last.volume / last.dataPoints);
+  const volumeRatio = last.lastCandle.volume / last.volume.avg;
   const diffRatio =
     (last.lastCandle.high - last.lastCandle.low) /
     (last.price.high - last.price.low);
@@ -113,39 +109,12 @@ function makeRanking(productId: string, data: BucketData[]): ProductRanking {
     multiply(volumeRatio, VOLUME_WEIGHT) +
     multiply(diffRatio, DIFF_WEIGHT);
 
-  const lastValue = (values: number[]): number => {
-    if (values.length === 0) return -1;
-    return values[values.length - 1];
-  };
-
-  // Get the SMAs
-  const sma1 = sma(closes, 12);
-  const sma2 = sma(closes, 26);
-  const sma3 = sma(closes, 50);
-  const sma4 = sma(closes, 200);
-
-  // Get the EMAs
-  const ema1 = ema(closes, 12);
-  const ema2 = ema(closes, 26);
-  const ema3 = ema(closes, 50);
-  const ema4 = ema(closes, 200);
-
   return {
     productId: productId,
     ranking: -1,
     dataPoints: dataPoints,
-    sma: {
-      twelve: toFixed(productId, lastValue(sma1), 'quote'),
-      twentysix: toFixed(productId, lastValue(sma2), 'quote'),
-      fifty: toFixed(productId, lastValue(sma3), 'quote'),
-      twohundred: toFixed(productId, lastValue(sma4), 'quote'),
-    },
-    ema: {
-      twelve: toFixed(productId, lastValue(ema1), 'quote'),
-      twentysix: toFixed(productId, lastValue(ema2), 'quote'),
-      fifty: toFixed(productId, lastValue(ema3), 'quote'),
-      twohundred: toFixed(productId, lastValue(ema4), 'quote'),
-    },
+    sma: dayMA.sma,
+    ema: dayMA.ema,
     rating: {
       value: quickFix(rating, 4),
       close: quickFix(closeRatio, 4),
@@ -153,11 +122,16 @@ function makeRanking(productId: string, data: BucketData[]): ProductRanking {
       volume: quickFix(volumeRatio, 4),
     },
     last: {
-      volume: toFixed(productId, last.volume),
+      volume: toFixed(productId, last.volume.total),
+      volumeAvg: toFixed(productId, last.volume.avg),
       close: last.price.close,
+      closeAvg: toFixed(productId, last.price.avg, 'quote'),
       high: last.price.high,
       low: last.price.low,
-      avg: toFixed(productId, last.price.avg, 'quote'),
+      cv: {
+        close: quickFix(last.price.cv, 4),
+        volume: quickFix(last.volume.cv, 4),
+      },
     },
   };
 }

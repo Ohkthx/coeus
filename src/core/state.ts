@@ -1,15 +1,16 @@
-import {BucketData, createBuckets} from './bucket';
-import {setToZero} from './timespan';
-import {Stopwatch} from './stopwatch';
+import {BucketData} from './bucket';
+import {setToZero} from '../timespan';
+import {Stopwatch} from '../stopwatch';
 import {schedule, validate} from 'node-cron';
 import {coreDebug, coreErr, coreInfo, coreWarn} from '.';
-import {makeRankings, ProductRanking} from './rank';
+import {ProductRanking, sortRankings} from './rank';
 import {initProduct, ProductOptions, Products} from '../product';
 import {AnonymousClient} from '../exchange-api/coinbase';
 import {Currencies, initCurrency} from '../currency';
-import {CandleOpts, CANDLES, getCandles, loadCandleData} from './candle';
 import {delay} from '../utils';
 import {APP_DEBUG} from '..';
+import {ProductData} from './product-data';
+import {DataOpts} from './opts';
 
 const PRODUCT_OPTS: ProductOptions = {
   include: ['USD'],
@@ -18,20 +19,30 @@ const PRODUCT_OPTS: ProductOptions = {
   stablepairs: false,
 };
 
+function printIteration(pId: string, i: number, total: number, ts: number) {
+  if (!APP_DEBUG) return;
+  const sTotal = (ts / (i + 1)) * total;
+  coreDebug(
+    `${(((i + 1) / total) * 100).toFixed(0)}% ` +
+      `Processing: ${pId}  (${ts.toFixed(0)}s / ${sTotal.toFixed(0)}s)`,
+    `\r`,
+  );
+}
+
 export class State {
   private static initialized: boolean = false;
-  private static stateConfig: CandleOpts;
+  private static stateConfig: DataOpts;
   private static updating: boolean = false;
   private static isEnabled: boolean = true;
-  private static currentRankings: ProductRanking[] = [];
+  private static currentRankings = new Map<string, ProductRanking>();
 
   /**
    * Creates a new static State.
    *
-   * @param {CandleOpts} config - Configuration to use for processing.
+   * @param {DataOpts} config - Configuration to use for processing.
    */
-  constructor(config: CandleOpts) {
-    const {candleSizeMin, candlesPerBucket} = config;
+  constructor(config: DataOpts) {
+    const {candleSizeMin, bucket} = config;
     if (60 % candleSizeMin !== 0) {
       throw new Error(
         `[core] candle size of '${candleSizeMin}' is invalid. ` +
@@ -42,9 +53,9 @@ export class State {
         `[core] candle size of '${candleSizeMin}' is invalid. ` +
           `Cannot exceed 60.`,
       );
-    } else if (candlesPerBucket < 2) {
+    } else if (bucket.candlesPer < 2) {
       throw new Error(
-        `[core] bucket size of '${candlesPerBucket}' is invalid. ` +
+        `[core] bucket size of '${bucket.candlesPer}' is invalid. ` +
           `It must have a value greater than 1.`,
       );
     }
@@ -61,46 +72,9 @@ export class State {
     return setToZero(new Date(), State.stateConfig.candleSizeMin);
   }
 
-  static get config(): CandleOpts {
+  static get config(): DataOpts {
     const opts = State.stateConfig;
-    return new CandleOpts(
-      opts.granularity,
-      State.timestamp,
-      opts.candlesPerBucket,
-      opts.totalBuckets,
-    );
-  }
-
-  /**
-   * Get all of the buckets associated with a product/pair.
-   *
-   * @param {string} productId - Product/pair Id
-   * @returns {BucketData[]} Compiled data from the candles for the product/pair.
-   */
-  static getBuckets(productId: string): BucketData[] {
-    const opts = State.config;
-    let candles = CANDLES.get(productId) ?? [];
-    if (candles.length === 0) return [];
-
-    return createBuckets(candles, opts);
-  }
-
-  /**
-   * Get all of the data for all known product/pairs.
-   *
-   * @returns {Map<string, BucketData[]>} Map of data, key: productId, value: data.
-   */
-  static getAllBuckets(): Map<string, BucketData[]> {
-    const products = Products.filter(PRODUCT_OPTS).map((p) => p.id);
-    const buckets = new Map<string, BucketData[]>();
-
-    for (const pId of products) {
-      const b = State.getBuckets(pId);
-      if (b.length === 0) continue;
-      buckets.set(pId, b);
-    }
-
-    return buckets;
+    return new DataOpts(State.timestamp, opts.candle, opts.bucket);
   }
 
   /**
@@ -110,7 +84,7 @@ export class State {
    * @returns {ProductRanking | undefined} Product ranking if it is found.
    */
   static getRanking(productId: string): ProductRanking | undefined {
-    return State.currentRankings.find((r) => r.productId === productId);
+    return State.currentRankings.get(productId);
   }
 
   /**
@@ -120,10 +94,19 @@ export class State {
    * @returns {ProductRanking[]} Sorted rankings from "best" to "worst"
    */
   static getRankings(count: number = -1): ProductRanking[] {
-    if (count < 0) return State.currentRankings;
-    else if (count === 0) return [];
-    else if (count > State.currentRankings.length) return State.currentRankings;
-    return State.currentRankings.slice(0, count);
+    const filter = {
+      count: count,
+      close: true,
+    };
+
+    const rankings: ProductRanking[] = [];
+    for (const r of State.currentRankings.values()) rankings.push(r);
+
+    // Sort the rankings based on their current rating values.
+    rankings.sort((a, b) => (a.rating.value > b.rating.value ? -1 : 1));
+    for (let i = 0; i < rankings.length; i++) rankings[i].ranking = i + 1;
+
+    return sortRankings(rankings, filter);
   }
 
   /**
@@ -131,9 +114,8 @@ export class State {
    *
    * @param {ProductRanking[]} rankings - Rankings to override with.
    */
-  static setRankings(rankings: ProductRanking[]) {
-    if (rankings.length === 0) return;
-    State.currentRankings = rankings;
+  static setRanking(ranking: ProductRanking) {
+    State.currentRankings.set(ranking.productId, ranking);
   }
 
   /**
@@ -182,7 +164,7 @@ export class State {
    * @param {number} opts.bucketSize - Amount of candles to be bundled together.
    * @param {number} opts.intervals - Amount of intervals to generate rankings from.
    */
-  static async initWrapper(opts: CandleOpts) {
+  static async initWrapper(opts: DataOpts) {
     // Prevent reinitialization.
     if (State.initialized || !State.isEnabled) return;
 
@@ -199,9 +181,9 @@ export class State {
 /**
  * Initialized the state, using the options provided.
  *
- * @param {CandleOpts} opts - Options for processing candles and buckets.
+ * @param {DataOpts} opts - Options for processing candles and buckets.
  */
-async function initState(opts: CandleOpts) {
+async function initState(opts: DataOpts) {
   new State(opts);
 
   // Load all of the products and currencies.
@@ -214,36 +196,27 @@ async function initState(opts: CandleOpts) {
   const products = Products.filter(PRODUCT_OPTS).map((p) => p.id);
   for (let i = 0; i < products.length; i++) {
     const pId = products[i];
-    if (APP_DEBUG) {
-      const ts = sw.print();
-      const sTotal = (ts / (i + 1)) * products.length;
-      coreDebug(
-        `${(((i + 1) / products.length) * 100).toFixed(0)}% ` +
-          `Processing: ${pId}  (${ts.toFixed(0)}s / ${sTotal.toFixed(0)}s)`,
-        `\r`,
-      );
-    }
+    printIteration(pId, i, products.length, sw.print());
 
-    const {candles} = (await loadCandleData(pId)) ?? [];
-    if (candles.length > 0) {
-      loaded++;
-      CANDLES.set(pId, candles);
-    }
+    const pData = await ProductData.initialize(pId, opts.start.toISOString());
+    if (pData.getCandles().length > 0) loaded++;
   }
 
-  coreInfo(`loaded ${loaded} product data, took ${sw.stop()} seconds.`);
+  coreDebug(`loaded ${loaded} product data, took ${sw.stop()} seconds.`);
 
   // Get the bucket data from the candles.
   sw.restart();
-  const buckets = State.getAllBuckets();
-  coreDebug(`Bucket creation execution took ${sw.stop()} seconds.`);
+  for (let i = 0; i < products.length; i++) {
+    const pId = products[i];
+    printIteration(pId, i, products.length, sw.print());
 
-  // Get the rankings.
-  sw.restart();
-  const rankings = makeRankings(buckets);
-  State.setRankings(rankings);
-  coreDebug(`Rank creation execution took ${sw.stop()} seconds.`);
+    const pData = ProductData.find(pId);
+    if (!pData) continue;
 
+    const ranking = pData.updateRanking();
+    if (ranking) State.setRanking(ranking);
+  }
+  coreDebug(`Bucket and Rank creation execution took ${sw.stop()} seconds.`);
   coreInfo(`timestamp: ${State.timestamp.toISOString()}.`);
 
   // Update the currencies.
@@ -290,33 +263,31 @@ async function updateData(): Promise<ProductRanking[]> {
   sw.restart();
   for (let i = 0; i < products.length; i++) {
     const pId = products[i];
-    if (APP_DEBUG) {
-      const ts = sw.print();
-      const sTotal = (ts / (i + 1)) * products.length;
-      coreDebug(
-        `${(((i + 1) / products.length) * 100).toFixed(0)}% ` +
-          `Processing: ${pId}  (${ts.toFixed(0)}s / ${sTotal.toFixed(0)}s)`,
-        `\r`,
-      );
-    }
-    await getCandles(pId, opts);
+    const pData = ProductData.find(pId);
+    if (!pData) continue;
+
+    printIteration(pId, i, products.length, sw.print());
+    await pData.updateCandles(opts);
   }
   coreDebug(`Candle polling execution took ${sw.stop()} seconds.`);
 
   // Get the bucket data from the candles.
   sw.restart();
-  const buckets = State.getAllBuckets();
-  coreDebug(`Bucket creation execution took ${sw.stop()} seconds.`);
+  for (let i = 0; i < products.length; i++) {
+    const pId = products[i];
+    printIteration(pId, i, products.length, sw.print());
 
-  // Get the rankings.
-  sw.restart();
-  const rankings = makeRankings(buckets);
-  State.setRankings(rankings);
-  coreDebug(`Rank creation execution took ${sw.stop()} seconds.`);
+    const pData = ProductData.find(pId);
+    if (!pData) continue;
+
+    const ranking = pData.updateRanking();
+    if (ranking) State.setRanking(ranking);
+  }
+  coreDebug(`Bucket and Rank creation execution took ${sw.stop()} seconds.`);
   coreDebug(`Total execution took ${sw.totalMs / 1000} seconds.`);
   coreInfo('update complete.\n');
 
-  return rankings;
+  return State.getRankings();
 }
 
 /**

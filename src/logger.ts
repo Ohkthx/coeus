@@ -78,7 +78,7 @@ export function logger(
 
 async function mdsrvSend(status: Status, data: string) {
   const msg = createMessage(
-    'autostonks',
+    'coeus',
     'logger',
     Destination.DISCORD,
     DISCORD_DEST,
