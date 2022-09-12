@@ -29,12 +29,12 @@ module.exports = <Event>{
           if (!data.products) data.products = [];
 
           if (data.products.length > 0) {
-            const rankings = State.getRankings();
+            const rankings = State.getSortedRankings();
             retData = rankings.filter((r) =>
               data.products.includes(r.productId),
             );
           } else {
-            retData = State.getRankings(data.count);
+            retData = State.getSortedRankings(data.count);
           }
 
           res = `${res}[${param}: 'completed'] `;

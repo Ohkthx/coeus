@@ -10,6 +10,7 @@ import {ConsoleState} from './commands';
 import {HTTPServer} from './rest';
 import {APP_DEBUG, DB_DATABASE, USE_SANDBOX, appInfo, appErr, appWarn} from '.';
 import {DataOpts} from './core/opts';
+import {DiscordBot} from './discord/discord-bot';
 
 appInfo(`APP_DEBUG set to '${APP_DEBUG}'`);
 appInfo(`DB_DATABASE set to '${DB_DATABASE}'`);
@@ -65,6 +66,9 @@ async function killAll() {
 
   // Load the console commands and events.
   ConsoleState.loadAll();
+
+  // Load the Discord Config.
+  await DiscordBot.loadConfig();
 
   // Initialize the core.
   await State.initWrapper(DATA_OPTS);

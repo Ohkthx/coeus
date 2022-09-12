@@ -29,3 +29,23 @@ export function parseBoolean(bool: string | boolean | undefined): boolean {
   else if (typeof bool === 'boolean') return bool;
   return bool.toLowerCase() === 'true';
 }
+
+/**
+ * Checks if the passed object is an array.
+ *
+ * @param {any} data - Object to check.
+ * @returns {boolean} True if object is an array.
+ */
+export function isArray(data: any): boolean {
+  return !!data && data.constructor === Array;
+}
+
+/**
+ * Checks if the passed object is a string.
+ *
+ * @param {any} data - Object to check.
+ * @returns {boolean} True if Object is an array.
+ */
+export function isText(data: any): data is string {
+  return typeof data === 'string';
+}

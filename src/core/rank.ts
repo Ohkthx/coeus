@@ -30,8 +30,8 @@ export interface ProductRanking extends DayMA {
   productId: string;
   ranking: number;
   dataPoints: number;
-  rating: {
-    value: number;
+  ratio: {
+    rating: number;
     close: number;
     diff: number;
     volume: number;
@@ -71,11 +71,11 @@ export function sortRankings(
 ): ProductRanking[] {
   let s: ProductRanking[] = rankings;
 
-  if (filter.close) s = rankings.filter((r) => r.rating.close > 1);
-  if (filter.volume) s = rankings.filter((r) => r.rating.volume > 1);
+  if (filter.close) s = rankings.filter((r) => r.ratio.close > 1);
+  if (filter.volume) s = rankings.filter((r) => r.ratio.volume > 1);
   //if (filter.movement) s = rankings.filter((r) => r.rating.movement > 1);
 
-  s.sort((a, b) => (a.rating > b.rating ? -1 : 1));
+  s.sort((a, b) => (a.ratio.rating > b.ratio.rating ? -1 : 1));
   return filter.count > 0 ? s.slice(0, filter.count) : s;
 }
 
@@ -115,8 +115,8 @@ export function makeRanking(
     dataPoints: dataPoints,
     sma: dayMA.sma,
     ema: dayMA.ema,
-    rating: {
-      value: quickFix(rating, 4),
+    ratio: {
+      rating: quickFix(rating, 4),
       close: quickFix(closeRatio, 4),
       diff: quickFix(diffRatio, 4),
       volume: quickFix(volumeRatio, 4),

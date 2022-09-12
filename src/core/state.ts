@@ -1,4 +1,3 @@
-import {BucketData} from './bucket';
 import {setToZero} from '../timespan';
 import {Stopwatch} from '../stopwatch';
 import {schedule, validate} from 'node-cron';
@@ -11,6 +10,8 @@ import {delay} from '../utils';
 import {APP_DEBUG} from '..';
 import {ProductData} from './product-data';
 import {DataOpts} from './opts';
+import {sendRankings} from '../discord/notification';
+import {sum} from 'mathjs';
 
 const PRODUCT_OPTS: ProductOptions = {
   include: ['USD'],
@@ -87,26 +88,36 @@ export class State {
     return State.currentRankings.get(productId);
   }
 
+  static getUnsortedRankings(): ProductRanking[] {
+    return [...State.currentRankings.values()];
+  }
+
   /**
    * Get all of the rankings for the known products/pairs.
    *
    * @param {number} count - Limits the amount obtained. Default is obtain all.
    * @returns {ProductRanking[]} Sorted rankings from "best" to "worst"
    */
-  static getRankings(count: number = -1): ProductRanking[] {
+  static getSortedRankings(count: number = -1): ProductRanking[] {
     const filter = {
       count: count,
       close: true,
     };
 
     const rankings: ProductRanking[] = [];
-    for (const r of State.currentRankings.values()) rankings.push(r);
+    for (const r of State.getUnsortedRankings()) rankings.push(r);
 
     // Sort the rankings based on their current rating values.
-    rankings.sort((a, b) => (a.rating.value > b.rating.value ? -1 : 1));
+    rankings.sort((a, b) => (a.ratio.rating > b.ratio.rating ? -1 : 1));
     for (let i = 0; i < rankings.length; i++) rankings[i].ranking = i + 1;
 
     return sortRankings(rankings, filter);
+  }
+
+  static getDataPoints(): number {
+    return State.getUnsortedRankings().reduce((a, b) => {
+      return b.dataPoints + a;
+    }, 0);
   }
 
   /**
@@ -216,6 +227,13 @@ async function initState(opts: DataOpts) {
     const ranking = pData.updateRanking();
     if (ranking) State.setRanking(ranking);
   }
+
+  // Send the updated rankings to discord.
+  sendRankings(
+    State.getSortedRankings(),
+    products.length,
+    State.getDataPoints(),
+  );
   coreDebug(`Bucket and Rank creation execution took ${sw.stop()} seconds.`);
   coreInfo(`timestamp: ${State.timestamp.toISOString()}.`);
 
@@ -283,11 +301,18 @@ async function updateData(): Promise<ProductRanking[]> {
     const ranking = pData.updateRanking();
     if (ranking) State.setRanking(ranking);
   }
+
+  // Send the updated rankings to discord.
+  sendRankings(
+    State.getSortedRankings(),
+    products.length,
+    State.getDataPoints(),
+  );
   coreDebug(`Bucket and Rank creation execution took ${sw.stop()} seconds.`);
   coreDebug(`Total execution took ${sw.totalMs / 1000} seconds.`);
   coreInfo('update complete.\n');
 
-  return State.getRankings();
+  return State.getSortedRankings();
 }
 
 /**
