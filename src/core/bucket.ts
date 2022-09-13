@@ -25,7 +25,8 @@ export interface BucketData {
   timestampISO: string;
   dataPoints: number;
   price: {
-    avg: number;
+    closeAvg: number;
+    diffAvg: number;
     low: number;
     high: number;
     close: number;
@@ -160,7 +161,8 @@ export function newBucketData(timestamp: string): BucketData {
     timestampISO: timestamp,
     dataPoints: 0,
     price: {
-      avg: -1,
+      closeAvg: -1,
+      diffAvg: -1,
       low: -1,
       high: -1,
       close: -1,
@@ -199,9 +201,11 @@ function candleProcessor(candleBuckets: CandleBucket[]): BucketData[] {
     // Get the high, low, close, and total volume for the bucket.
     let totalClose = 0;
     let totalVolume = 0;
+    let totalDiff = 0;
     for (const c of candles) {
       if (c.high > data.price.high) data.price.high = c.high;
       if (data.price.low < 0 || c.low < data.price.low) data.price.low = c.low;
+      totalDiff += c.high - c.low;
       totalClose += c.close;
       totalVolume += c.volume;
     }
@@ -210,7 +214,8 @@ function candleProcessor(candleBuckets: CandleBucket[]): BucketData[] {
     data.dataPoints = candles.length;
 
     // Computes avg for whole bucket and store last candle data.
-    data.price.avg = totalClose / data.dataPoints;
+    data.price.diffAvg = totalDiff / data.dataPoints;
+    data.price.closeAvg = totalClose / data.dataPoints;
     data.price.close = candles[0].close;
     data.volume.avg = totalVolume / data.dataPoints;
     data.volume.total = totalVolume;
@@ -220,7 +225,7 @@ function candleProcessor(candleBuckets: CandleBucket[]): BucketData[] {
     data.lastCandle.volume = candles[0].volume;
 
     // Compute the coefficient of variances.
-    data.price.cv = std(...candles.map((c) => c.close)) / data.price.avg;
+    data.price.cv = std(...candles.map((c) => c.close)) / data.price.closeAvg;
     data.volume.cv = std(...candles.map((c) => c.volume)) / data.volume.avg;
 
     buckets.push(data);

@@ -49,3 +49,62 @@ export function isArray(data: any): boolean {
 export function isText(data: any): data is string {
   return typeof data === 'string';
 }
+
+export function randomInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min) + min);
+}
+
+export function getUniqueId(): string {
+  const color = [
+    'blue',
+    'green',
+    'purple',
+    'pink',
+    'yellow',
+    'teal',
+    'red',
+    'white',
+    'black',
+    'gray',
+    'orange',
+    'brown',
+    'gold',
+    'silver',
+    'magenta',
+    'scarlet',
+    'indigo',
+    'violet',
+    'cyan',
+    'maroon',
+    'bronze',
+  ];
+
+  const item = [
+    'truck',
+    'pencil',
+    'flower',
+    'map',
+    'sky',
+    'basket',
+    'table',
+    'tree',
+    'speaker',
+    'book',
+    'lamp',
+    'phone',
+    'clock',
+    'blanket',
+    'dog',
+    'cat',
+    'candle',
+    'skull',
+    'box',
+    'key',
+    'pillow',
+    'plant',
+  ];
+
+  const index1 = randomInt(0, color.length);
+  const index2 = randomInt(0, item.length);
+  return `${color[index1]}-${item[index2]}`;
+}

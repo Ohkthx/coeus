@@ -2,16 +2,17 @@ import {setToZero} from '../timespan';
 import {Stopwatch} from '../stopwatch';
 import {schedule, validate} from 'node-cron';
 import {coreDebug, coreErr, coreInfo, coreWarn} from '.';
-import {ProductRanking, sortRankings} from './rank';
+import {ProductRanking, SortFilter, sortRankings} from './rank';
 import {initProduct, ProductOptions, Products} from '../product';
 import {AnonymousClient} from '../exchange-api/coinbase';
 import {Currencies, initCurrency} from '../currency';
-import {delay} from '../utils';
+import {delay, getUniqueId} from '../utils';
 import {APP_DEBUG} from '..';
 import {ProductData} from './product-data';
 import {DataOpts} from './opts';
-import {sendRankings} from '../discord/notification';
-import {sum} from 'mathjs';
+import {sendAnalysis, sendRankings} from '../discord/notification';
+import {crossAnalysis} from './analysis';
+import {DiscordBot} from '../discord/discord-bot';
 
 const PRODUCT_OPTS: ProductOptions = {
   include: ['USD'],
@@ -99,18 +100,13 @@ export class State {
    * @returns {ProductRanking[]} Sorted rankings from "best" to "worst"
    */
   static getSortedRankings(count: number = -1): ProductRanking[] {
-    const filter = {
+    const filter: SortFilter = {
       count: count,
-      close: true,
+      //movement: true,
     };
 
     const rankings: ProductRanking[] = [];
     for (const r of State.getUnsortedRankings()) rankings.push(r);
-
-    // Sort the rankings based on their current rating values.
-    rankings.sort((a, b) => (a.ratio.rating > b.ratio.rating ? -1 : 1));
-    for (let i = 0; i < rankings.length; i++) rankings[i].ranking = i + 1;
-
     return sortRankings(rankings, filter);
   }
 
@@ -149,7 +145,6 @@ export class State {
     await delay(20000);
     if (State.isUpdating || !State.isEnabled) return;
     State.updating = true;
-
     await updateData()
       .then(() => {})
       .catch((err) => {
@@ -163,6 +158,14 @@ export class State {
       .finally(() => {
         State.updating = false;
       });
+  }
+
+  static checkCrosses(productId: string): string[] {
+    const pData = ProductData.find(productId);
+    if (!pData) return [];
+
+    let res = crossAnalysis(pData, 'SMA');
+    return res.concat(crossAnalysis(pData, 'EMA'));
   }
 
   /**
@@ -196,6 +199,7 @@ export class State {
  */
 async function initState(opts: DataOpts) {
   new State(opts);
+  await DiscordBot.setActivity(`with updates.`);
 
   // Load all of the products and currencies.
   await initProduct();
@@ -224,16 +228,20 @@ async function initState(opts: DataOpts) {
     const pData = ProductData.find(pId);
     if (!pData) continue;
 
-    const ranking = pData.updateRanking();
+    const movement = await pData.getMovement();
+    const ranking = pData.updateRanking(movement);
     if (ranking) State.setRanking(ranking);
   }
 
   // Send the updated rankings to discord.
+  const updateId = getUniqueId();
   sendRankings(
     State.getSortedRankings(),
     products.length,
     State.getDataPoints(),
+    updateId,
   );
+  await DiscordBot.setActivity(`with: ${updateId}`);
   coreDebug(`Bucket and Rank creation execution took ${sw.stop()} seconds.`);
   coreInfo(`timestamp: ${State.timestamp.toISOString()}.`);
 
@@ -267,6 +275,7 @@ async function initState(opts: DataOpts) {
 async function updateData(): Promise<ProductRanking[]> {
   coreInfo('\nupdating data now!');
   const opts = State.config;
+  await DiscordBot.setActivity(`with updates.`);
 
   // Update the currencies.
   const sw = new Stopwatch();
@@ -298,17 +307,40 @@ async function updateData(): Promise<ProductRanking[]> {
     const pData = ProductData.find(pId);
     if (!pData) continue;
 
-    const ranking = pData.updateRanking();
+    const movement = await pData.getMovement();
+    const ranking = pData.updateRanking(movement);
     if (ranking) State.setRanking(ranking);
   }
 
   // Send the updated rankings to discord.
+  const updateId = getUniqueId();
   sendRankings(
     State.getSortedRankings(),
     products.length,
     State.getDataPoints(),
+    updateId,
   );
+  await DiscordBot.setActivity(`with: ${updateId}`);
   coreDebug(`Bucket and Rank creation execution took ${sw.stop()} seconds.`);
+
+  // Do cross analysis
+  sw.restart();
+  let crosses: string[] = [];
+  for (let i = 0; i < products.length; i++) {
+    const pId = products[i];
+    printIteration(pId, i, products.length, sw.print());
+
+    const res = State.checkCrosses(pId);
+    if (res.length === 0) continue;
+
+    crosses = crosses.concat(res);
+  }
+
+  if (crosses.length > 0) {
+    sendAnalysis(crosses, updateId);
+  }
+  coreDebug(`Cross analysis took ${sw.stop()} seconds.`);
+
   coreDebug(`Total execution took ${sw.totalMs / 1000} seconds.`);
   coreInfo('update complete.\n');
 

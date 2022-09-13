@@ -120,17 +120,33 @@ export class DiscordBot {
     discordId: string,
     messageId: string,
   ): Promise<Message<true> | undefined> {
-    const channel = await DiscordBot.validateSession(discordId);
-    if (!channel) return;
-
-    return channel.messages
-      .fetch(messageId)
-      .then((msg) => {
-        return msg;
+    return DiscordBot.validateSession(discordId)
+      .then(async (channel) => {
+        return channel.messages
+          .fetch(messageId)
+          .then((msg) => {
+            return msg;
+          })
+          .catch(() => {
+            return undefined;
+          });
       })
-      .catch(() => {
+      .catch((err) => {
+        console.log(err.message);
         return undefined;
       });
+  }
+
+  static async setActivity(activity: string) {
+    await DiscordBot.initDiscordBot();
+
+    // Cannot send notification if the client is unassigned.
+    const client = DiscordBot.client?.user;
+    if (!client) {
+      throw new Error('could not obtain discord bots user account.');
+    }
+
+    return client.setActivity(activity);
   }
 
   /**
@@ -143,24 +159,21 @@ export class DiscordBot {
     discordId: string,
     embed: string | EmbedBuilder | EmbedBuilder[],
   ): Promise<Message<true> | Message<false> | undefined> {
-    const channel = await DiscordBot.validateSession(discordId);
-    if (!channel) return;
-
-    try {
-      if (isText(embed)) {
-        return channel.send(embed);
-      } else if (isArray(embed)) {
-        // Send all embeds if it is an array.
-        return channel.send({embeds: <EmbedBuilder[]>embed});
-      } else {
+    return DiscordBot.validateSession(discordId)
+      .then(async (channel) => {
+        if (isText(embed)) {
+          return channel.send(embed);
+        } else if (isArray(embed)) {
+          // Send all embeds if it is an array.
+          return channel.send({embeds: <EmbedBuilder[]>embed});
+        }
         // Send single embed.
         return channel.send({embeds: [<EmbedBuilder>embed]});
-      }
-    } catch (err) {
-      throw new Error(
-        'could not send message to channel, make sure it is the correct channel.',
-      );
-    }
+      })
+      .catch((err) => {
+        console.log(err.message);
+        return undefined;
+      });
   }
 
   static async editNotification(
@@ -249,7 +262,7 @@ export class DiscordBot {
 
       const missing = DISCORD_MAX_RANKING + 1 - msgIds.length;
       for (let i = 0; i < missing; i++) {
-        const newMsg = createNotification(NULL_DATA);
+        const newMsg = createNotification('json', NULL_DATA);
         const msg = await DiscordBot.sendNotification(
           DiscordBot.config.channels.rank,
           newMsg,

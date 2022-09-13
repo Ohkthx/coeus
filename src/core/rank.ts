@@ -8,28 +8,27 @@ export interface SortFilter {
   count: number;
   movement?: boolean;
   close?: boolean;
+  diff?: boolean;
   volume?: boolean;
 }
 
+export interface MAValues {
+  twelve: number;
+  twentysix: number;
+  fifty: number;
+  twohundred: number;
+}
+
 export interface DayMA {
-  sma: {
-    twelve: number;
-    twentysix: number;
-    fifty: number;
-    twohundred: number;
-  };
-  ema: {
-    twelve: number;
-    twentysix: number;
-    fifty: number;
-    twohundred: number;
-  };
+  sma: MAValues;
+  ema: MAValues;
 }
 
 export interface ProductRanking extends DayMA {
   productId: string;
   ranking: number;
   dataPoints: number;
+  movement: number;
   ratio: {
     rating: number;
     close: number;
@@ -43,7 +42,7 @@ export interface ProductRanking extends DayMA {
     closeAvg: number;
     high: number;
     low: number;
-    cv: {
+    cov: {
       close: number;
       volume: number;
     };
@@ -69,14 +68,17 @@ export function sortRankings(
   rankings: ProductRanking[],
   filter: SortFilter,
 ): ProductRanking[] {
-  let s: ProductRanking[] = rankings;
-
-  if (filter.close) s = rankings.filter((r) => r.ratio.close > 1);
-  if (filter.volume) s = rankings.filter((r) => r.ratio.volume > 1);
-  //if (filter.movement) s = rankings.filter((r) => r.rating.movement > 1);
+  let s: ProductRanking[] = [...rankings];
+  if (filter.close) s = s.filter((r) => r.ratio.close > 1);
+  if (filter.diff) s = s.filter((r) => r.ratio.diff > 1);
+  if (filter.volume) s = s.filter((r) => r.ratio.volume > 1);
+  if (filter.movement) s = s.filter((r) => r.movement > 1);
 
   s.sort((a, b) => (a.ratio.rating > b.ratio.rating ? -1 : 1));
-  return filter.count > 0 ? s.slice(0, filter.count) : s;
+  if (filter.count > 0) s = s.slice(0, filter.count);
+
+  for (let i = 0; i < s.length; i++) s[i].ranking = i + 1;
+  return s;
 }
 
 /**
@@ -90,6 +92,7 @@ export function makeRanking(
   productId: string,
   data: BucketData[],
   dayMA: DayMA,
+  movement: number,
 ): ProductRanking | undefined {
   if (data.length === 0) return;
 
@@ -97,11 +100,10 @@ export function makeRanking(
   const last = data[data.length - 1];
 
   // Calculate the ratios from last candles data.
-  const closeRatio = last.lastCandle.close / last.price.avg;
+  const closeRatio = last.lastCandle.close / last.price.closeAvg;
   const volumeRatio = last.lastCandle.volume / last.volume.avg;
   const diffRatio =
-    (last.lastCandle.high - last.lastCandle.low) /
-    (last.price.high - last.price.low);
+    (last.lastCandle.high - last.lastCandle.low) / last.price.diffAvg;
 
   // Factor in the weights to create a rating.
   const rating: number =
@@ -113,22 +115,23 @@ export function makeRanking(
     productId: productId,
     ranking: -1,
     dataPoints: dataPoints,
-    sma: dayMA.sma,
-    ema: dayMA.ema,
+    movement: quickFix(movement, 4),
     ratio: {
       rating: quickFix(rating, 4),
       close: quickFix(closeRatio, 4),
       diff: quickFix(diffRatio, 4),
       volume: quickFix(volumeRatio, 4),
     },
+    sma: dayMA.sma,
+    ema: dayMA.ema,
     last: {
       volume: toFixed(productId, last.volume.total),
       volumeAvg: toFixed(productId, last.volume.avg),
       close: last.price.close,
-      closeAvg: toFixed(productId, last.price.avg, 'quote'),
+      closeAvg: toFixed(productId, last.price.closeAvg, 'quote'),
       high: last.price.high,
       low: last.price.low,
-      cv: {
+      cov: {
         close: quickFix(last.price.cv, 4),
         volume: quickFix(last.volume.cv, 4),
       },
