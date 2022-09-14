@@ -69,6 +69,7 @@ async function killAll() {
 
   // Load the Discord Config.
   await DiscordBot.loadConfig();
+  await DiscordBot.init('server');
 
   // Initialize the core.
   await State.initWrapper(DATA_OPTS);

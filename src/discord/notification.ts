@@ -1,13 +1,23 @@
 import {codeBlock, spoiler} from 'discord.js';
 import {DISCORD_MAX_RANKING} from '.';
-import {CLOSE_WEIGHT, DIFF_WEIGHT, VOLUME_WEIGHT} from '../core';
-import {ProductRanking} from '../core/rank';
-import {getUniqueId} from '../utils';
+import {CLOSE_WEIGHT, DIFF_WEIGHT, State, VOLUME_WEIGHT} from '../core';
+import {ProductRanking, SortFilter} from '../core/rank';
 import {
   DiscordBot,
   DISCORD_DEST_ANALYSIS,
   DISCORD_DEST_RANK,
 } from './discord-bot';
+
+export function getFilterString(filter: SortFilter): string {
+  const res: string[] = [];
+  if (filter.close) res.push('[close > 1]');
+  if (filter.diff) res.push('[diff > 1]');
+  if (filter.volume) res.push('[volume > 1]');
+  if (filter.movement) res.push('[movement > 1]');
+
+  if (res.length === 0) return '';
+  return `Filtered Results! Only showing: ${res.join(' ')}\n`;
+}
 
 export function createNotification(cbValue: string, data: string): string {
   return spoiler(codeBlock(cbValue, data));
@@ -38,7 +48,7 @@ export async function sendRankings(
   rankings: ProductRanking[],
   total: number,
   dataPoints: number,
-  updateId: string,
+  update?: {id: string; time: number},
 ) {
   let rankPos: number = 0;
 
@@ -46,11 +56,10 @@ export async function sendRankings(
     const msgId = DiscordBot.messageIds[i];
     let jsonData = NULL_DATA;
     if (rankPos < rankings.length) {
-      jsonData =
-        `Update ID: ${updateId}\n` +
-        `${JSON.stringify(rankings[rankPos++], null, 2)}`;
+      jsonData = JSON.stringify(rankings[rankPos++], null, 2);
     }
 
+    if (update) jsonData = `Update Id: ${update.id}\n${jsonData}`;
     const notification = createNotification('json', jsonData);
     await DiscordBot.editNotification(DISCORD_DEST_RANK, msgId, notification);
   }
@@ -58,9 +67,17 @@ export async function sendRankings(
   const date = new Date();
   const dpString = dataPoints.toLocaleString('en-US');
   const filtered = total - rankings.length;
+  const filterString = getFilterString(State.getFilter());
+  let updateString = '';
+  if (update) {
+    updateString = `+ UpdateId: ${update.id}, time took: ${update.time}s\n`;
+  }
+
   const updateText = codeBlock(
     'markdown',
     `Processed ${total} products and ${dpString} candles, filtered ${filtered} rankings.\n` +
+      `${filterString}` +
+      `${updateString}` +
       `+ Updated @Local: ${date}\n` +
       `+ Updated @ISO-8601: ${date.toISOString()}\n` +
       `\nNotes:\n` +

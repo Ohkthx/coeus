@@ -37,6 +37,8 @@ export class State {
   private static updating: boolean = false;
   private static isEnabled: boolean = true;
   private static currentRankings = new Map<string, ProductRanking>();
+  private static sortFilter: SortFilter = {count: -1};
+  static updateId: string = getUniqueId();
 
   /**
    * Creates a new static State.
@@ -79,6 +81,36 @@ export class State {
     return new DataOpts(State.timestamp, opts.candle, opts.bucket);
   }
 
+  static getFilter(): SortFilter {
+    return State.sortFilter;
+  }
+
+  static updateFilter(filter: SortFilter) {
+    const old = State.getFilter();
+
+    if (filter.count !== old.count) {
+      State.sortFilter.count = filter.count;
+    }
+
+    if (filter.close !== undefined && filter.close !== old.close) {
+      State.sortFilter.close = filter.close;
+    }
+
+    if (filter.diff !== undefined && filter.diff !== old.diff) {
+      State.sortFilter.diff = filter.diff;
+    }
+
+    if (filter.volume !== undefined && filter.volume !== old.volume) {
+      State.sortFilter.volume = filter.volume;
+    }
+
+    if (filter.movement !== undefined && filter.movement !== old.movement) {
+      State.sortFilter.movement = filter.movement;
+    }
+
+    return State.getFilter();
+  }
+
   /**
    * Get the rankings for a specific product/pair.
    *
@@ -100,14 +132,9 @@ export class State {
    * @returns {ProductRanking[]} Sorted rankings from "best" to "worst"
    */
   static getSortedRankings(count: number = -1): ProductRanking[] {
-    const filter: SortFilter = {
-      count: count,
-      //movement: true,
-    };
-
     const rankings: ProductRanking[] = [];
     for (const r of State.getUnsortedRankings()) rankings.push(r);
-    return sortRankings(rankings, filter);
+    return sortRankings(rankings, State.getFilter());
   }
 
   static getDataPoints(): number {
@@ -239,9 +266,13 @@ async function initState(opts: DataOpts) {
     State.getSortedRankings(),
     products.length,
     State.getDataPoints(),
-    updateId,
+    {
+      id: updateId,
+      time: Number((sw.totalMs / 1000 + sw.print()).toFixed(4)),
+    },
   );
   await DiscordBot.setActivity(`with: ${updateId}`);
+  State.updateId = updateId;
   coreDebug(`Bucket and Rank creation execution took ${sw.stop()} seconds.`);
   coreInfo(`timestamp: ${State.timestamp.toISOString()}.`);
 
@@ -318,9 +349,13 @@ async function updateData(): Promise<ProductRanking[]> {
     State.getSortedRankings(),
     products.length,
     State.getDataPoints(),
-    updateId,
+    {
+      id: updateId,
+      time: Number((sw.totalMs / 1000 + sw.print()).toFixed(4)),
+    },
   );
   await DiscordBot.setActivity(`with: ${updateId}`);
+  State.updateId = updateId;
   coreDebug(`Bucket and Rank creation execution took ${sw.stop()} seconds.`);
 
   // Do cross analysis
@@ -352,15 +387,16 @@ async function updateData(): Promise<ProductRanking[]> {
  */
 async function updateProducts() {
   // Get the products.
-  try {
-    const products = await AnonymousClient.getProducts();
-    await Products.update(products);
-  } catch (err) {
-    if (err instanceof Error) coreErr(err.message);
-    else {
-      coreErr(`odd error... ${err}`);
-    }
-  }
+  return AnonymousClient.getProducts()
+    .then((products) => {
+      return Products.update(products);
+    })
+    .catch((err) => {
+      if (err instanceof Error) coreErr(err.message);
+      else {
+        coreErr(`odd error... ${err}`);
+      }
+    });
 }
 
 /**
@@ -368,13 +404,14 @@ async function updateProducts() {
  */
 async function updateCurrencies() {
   // Get the currencies.
-  try {
-    const currencies = await AnonymousClient.getCurrencies();
-    await Currencies.update(currencies);
-  } catch (err) {
-    if (err instanceof Error) coreErr(err.message);
-    else {
-      coreErr(`odd error... ${err}`);
-    }
-  }
+  return AnonymousClient.getCurrencies()
+    .then((currencies) => {
+      return Currencies.update(currencies);
+    })
+    .catch((err) => {
+      if (err instanceof Error) coreErr(err.message);
+      else {
+        coreErr(`odd error... ${err}`);
+      }
+    });
 }

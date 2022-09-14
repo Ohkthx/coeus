@@ -50,11 +50,10 @@ export class AnonymousClient {
         start: start.toISOString(),
       })
       .then((data) => {
-        if (data) {
-          // Make sure our data is oldest to newest.
-          data.sort((a, b) => (a.openTimeInISO < b.openTimeInISO ? -1 : 1));
-        }
-        return data ?? [];
+        if (!data) return [];
+        // Make sure our data is oldest to newest.
+        data.sort((a, b) => (a.openTimeInISO < b.openTimeInISO ? -1 : 1));
+        return data;
       })
       .catch((err) => {
         let errMsg = 'no data provided by API';
@@ -166,7 +165,7 @@ export class AnonymousClient {
         level: OrderBookLevel.TOP_50_BIDS_AND_ASKS,
       })
       .then((data) => {
-        if (data === undefined) throw new Error('data for product book empty.');
+        if (!data) throw new Error('data for product book empty.');
         return data;
       })
       .catch((err) => {
@@ -186,21 +185,20 @@ export class AnonymousClient {
    * @returns {Promise<ProductOrderCount>} Asks, Bids, and total amount of orders for top 50.
    */
   static async getOrderCount(productId: string): Promise<ProductOrderCount> {
-    const book = await this.getProductBook2(productId)
-      .then((data) => {
-        return data;
+    return AnonymousClient.getProductBook2(productId)
+      .then((book) => {
+        if (!book) throw new Error(`no book provided by API.`);
+        const tAsks: number = book.asks.reduce((a, b) => {
+          return a + b[2];
+        }, 0);
+        const tBids: number = book.bids.reduce((a, b) => {
+          return a + b[2];
+        }, 0);
+
+        return {sells: tAsks, buys: tBids, total: tAsks + tBids};
       })
       .catch((err) => {
         throw err;
       });
-
-    const tAsks: number = book.asks.reduce((a, b) => {
-      return a + b[2];
-    }, 0);
-    const tBids: number = book.bids.reduce((a, b) => {
-      return a + b[2];
-    }, 0);
-
-    return {sells: tAsks, buys: tBids, total: tAsks + tBids};
   }
 }

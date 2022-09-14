@@ -28,6 +28,11 @@ export class Stopwatch {
     return accumulated / 1000;
   }
 
+  /**
+   * Prints the current length of time elapsed in seconds.
+   *
+   * @returns {number} Amount of seconds elapsed.
+   */
   print(): number {
     return (Date.now() - this.startMs) / 1000;
   }

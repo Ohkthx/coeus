@@ -5,7 +5,7 @@ import {toFixed as quickFix} from '../utils';
 import {BucketData} from './bucket';
 
 export interface SortFilter {
-  count: number;
+  count?: number;
   movement?: boolean;
   close?: boolean;
   diff?: boolean;
@@ -75,7 +75,7 @@ export function sortRankings(
   if (filter.movement) s = s.filter((r) => r.movement > 1);
 
   s.sort((a, b) => (a.ratio.rating > b.ratio.rating ? -1 : 1));
-  if (filter.count > 0) s = s.slice(0, filter.count);
+  if (filter.count && filter.count > 0) s = s.slice(0, filter.count);
 
   for (let i = 0; i < s.length; i++) s[i].ranking = i + 1;
   return s;

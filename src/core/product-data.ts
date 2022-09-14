@@ -1,4 +1,4 @@
-import {CANDLE_GRANULARITY, MAX_DAYS_OF_DATA, ONE_DAY_TO_S} from '.';
+import {CANDLE_GRANULARITY, coreErr, MAX_DAYS_OF_DATA, ONE_DAY_TO_S} from '.';
 import {AnonymousClient} from '../exchange-api/coinbase';
 import {SimpleCandle} from '../models';
 import {toFixed} from '../product';
@@ -141,8 +141,16 @@ export class ProductData {
   }
 
   async getMovement(): Promise<number> {
-    const {sells, buys} = await AnonymousClient.getOrderCount(this.productId);
-    return buys / sells;
+    return AnonymousClient.getOrderCount(this.productId)
+      .then((data) => {
+        const {buys, sells} = data;
+        if (sells === 0) return buys;
+        return buys / sells;
+      })
+      .catch((err) => {
+        coreErr(err);
+        return -1;
+      });
   }
 
   async loadCandles() {

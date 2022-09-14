@@ -1,3 +1,7 @@
+import {CommandInteraction} from 'discord.js';
+import {APP_DEBUG} from '..';
+import {logger} from '../logger';
+
 export const separator = '-==- -==- -==- -==- -==- -==- -==- -==-';
 
 export const redmark: string = '<:redmark:887734442406314094>';
@@ -9,3 +13,17 @@ export enum DiscordColor {
   RED = '#dd2e44',
   NEUTRAL = '',
 }
+
+export const discordLog = (text: string, footer = '\n') =>
+  logger('log', 'discord', text, footer);
+export const discordErr = (text: string, footer = '\n') =>
+  logger('error', 'discord', text, footer);
+export const discordInfo = (text: string, footer = '\n') =>
+  logger('info', 'discord', text, footer);
+export const discordWarn = (text: string, footer = '\n') =>
+  logger('warn', 'discord', text, footer);
+export const discordDebug = (text: string, footer = '\n') =>
+  logger('debug', 'discord', text, footer, APP_DEBUG);
+
+// Stores the last command performed by the user.
+export const LastCommand: Map<string, CommandInteraction> = new Map();

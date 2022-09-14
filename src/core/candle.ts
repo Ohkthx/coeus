@@ -1,4 +1,5 @@
 import {Candle} from 'coinbase-pro-node';
+import {coreErr} from '.';
 import {USE_SANDBOX} from '..';
 import {AnonymousClient} from '../exchange-api/coinbase';
 import {CandleData, CandleDataModel, SimpleCandle} from '../models/candle';
@@ -29,20 +30,25 @@ export async function getCandles(
   if (timeDiffSec < opts.candle.granularity) return [];
 
   start.setTime(start.getTime() + 1000);
-  const pulledCandles = await AnonymousClient.getCandles(
+  return AnonymousClient.getCandles(
     productId,
     opts.candle.granularity,
     end,
     start,
-  );
+  )
+    .then((pulledCandles) => {
+      // Convert candles to SimpleCandle for storage and space reduction.
+      for (const c of pulledCandles) newCandles.push(convert(c));
+      if (newCandles.length > 0) {
+        saveCandles(productId, newCandles, opts.totalCandleCount);
+      }
 
-  // Convert candles to SimpleCandle for storage and space reduction.
-  for (const c of pulledCandles) newCandles.push(convert(c));
-  if (newCandles.length > 0) {
-    saveCandles(productId, newCandles, opts.totalCandleCount);
-  }
-
-  return newCandles;
+      return newCandles;
+    })
+    .catch((err) => {
+      coreErr(err);
+      return [];
+    });
 }
 
 /**

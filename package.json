@@ -7,7 +7,8 @@
     "build": "tsc",
     "reload": "npm run build && npm run start",
     "start": "node --max-old-space-size=8192 dist/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "deploy-discord": "node dist/discord/deploy-commands.js"
   },
   "repository": {
     "type": "git",

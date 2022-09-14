@@ -7,7 +7,7 @@ import {
   TextChannel,
 } from 'discord.js';
 import {config as envLoad} from 'dotenv';
-import {DISCORD_MAX_RANKING} from '.';
+import {discordErr, DISCORD_MAX_RANKING} from '.';
 import {DiscordConfig, DiscordModel} from '../models/discord';
 import {delay, isArray, isText} from '../utils';
 import {createNotification, NULL_DATA} from './notification';
@@ -26,8 +26,15 @@ export class DiscordBot {
   private static timeoutSet: boolean = false;
   private static lastMessage: number = Date.now();
   private static config: DiscordConfig;
+  private static clientType: 'server' | 'push' = 'server';
 
-  private static async initDiscordBot() {
+  static async init(clientType: 'server' | 'push') {
+    DiscordBot.clientType = clientType;
+    if (clientType === 'push') return DiscordBot.initPushBot();
+    return DiscordBot.initServerBot();
+  }
+
+  private static async initPushBot() {
     // Do not continue to intialize if we already have.
     if (DiscordBot.client && DiscordBot.ready) return;
 
@@ -46,14 +53,12 @@ export class DiscordBot {
     try {
       client.once('ready', (client: Client<true>) => {
         DiscordBot.client = client;
-        DiscordBot.ready = true;
+        DiscordBot.setReady(true);
       });
 
       // Login and wait for the bot to be ready.
       client.login(DISCORD_TOKEN);
-      while (!DiscordBot.ready) {
-        await delay(250);
-      }
+      while (!DiscordBot.ready) await delay(250);
     } catch (error: any) {
       throw new Error(
         `unable to establish discord connection, check the discord token`,
@@ -61,8 +66,38 @@ export class DiscordBot {
     }
   }
 
+  private static async initServerBot() {
+    // Do not continue to intialize if we already have.
+    if (DiscordBot.client && DiscordBot.ready) return;
+
+    const client = new Client({
+      intents: [IntentsBitField.Flags.Guilds],
+    });
+
+    // Contains all of the currently created event handlers.
+    const fs = require('fs');
+    const eventFiles = fs
+      .readdirSync('./dist/discord/events')
+      .filter((file: string) => file.endsWith('.js'));
+
+    // Add the events to their respected handlers.
+    for (const file of eventFiles) {
+      const event = require(`./events/${file}`);
+      if (event.once) {
+        client.once(event.name, (...args: any[]) => event.execute(...args));
+      } else {
+        client.on(event.name, (...args: any[]) => event.execute(...args));
+      }
+    }
+
+    // Log the client in.
+    client.login(DISCORD_TOKEN);
+    while (!DiscordBot.ready) await delay(250);
+    DiscordBot.client = client;
+  }
+
   private static async timeout() {
-    if (!DiscordBot.timeoutSet) return;
+    if (!DiscordBot.timeoutSet || DiscordBot.clientType === 'server') return;
 
     if (Date.now() - DiscordBot.lastMessage >= 30000) {
       DiscordBot.client?.destroy();
@@ -77,7 +112,7 @@ export class DiscordBot {
   private static async validateSession(
     discordId: string,
   ): Promise<TextChannel> {
-    await DiscordBot.initDiscordBot();
+    await DiscordBot.init(DiscordBot.clientType);
 
     // Cannot send notification if the client is unassigned.
     const client = DiscordBot.client?.user;
@@ -132,13 +167,13 @@ export class DiscordBot {
           });
       })
       .catch((err) => {
-        console.log(err.message);
+        discordErr(err.message);
         return undefined;
       });
   }
 
   static async setActivity(activity: string) {
-    await DiscordBot.initDiscordBot();
+    await DiscordBot.init(DiscordBot.clientType);
 
     // Cannot send notification if the client is unassigned.
     const client = DiscordBot.client?.user;
@@ -147,6 +182,22 @@ export class DiscordBot {
     }
 
     return client.setActivity(activity);
+  }
+
+  static async setNick(name: string) {
+    await DiscordBot.init(DiscordBot.clientType);
+
+    // Cannot send notification if the client is unassigned.
+    const client = DiscordBot.client?.user;
+    if (!client) {
+      throw new Error('could not obtain discord bots user account.');
+    }
+
+    return client.setUsername(name);
+  }
+
+  static setReady(ready: boolean) {
+    DiscordBot.ready = ready;
   }
 
   /**
@@ -171,7 +222,7 @@ export class DiscordBot {
         return channel.send({embeds: [<EmbedBuilder>embed]});
       })
       .catch((err) => {
-        console.log(err.message);
+        discordErr(err.message);
         return undefined;
       });
   }
