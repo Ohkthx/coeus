@@ -64,6 +64,14 @@ export const UNSET_DAY_MA: DayMA = {
   },
 };
 
+/**
+ * Sorts rankings based on a filter provided. Rankings are returned from greatest
+ * rating to worst rating.
+ *
+ * @param {ProductRanking[]} rankings - Product rankings to process.
+ * @param {SortFilter} filter - The filter to be applied to the rankings.
+ * @returns {ProductRanking[]} Filtered and sorted rankings.
+ */
 export function sortRankings(
   rankings: ProductRanking[],
   filter: SortFilter,
@@ -86,7 +94,9 @@ export function sortRankings(
  *
  * @param {string} productId - Product/pair to process.
  * @param {BucketData[]} data - Bucket data to process and compile into a ranking.
- * @returns {ProductRanking} Ranking of the product provided.
+ * @param {DayMA} dayMA - EMA/SMA data to add to ranking.
+ * @param {number} movement - Buying/Selling ratio to add to ranking.
+ * @returns {ProductRanking | undefined} Ranking of the product, if no errors.
  */
 export function makeRanking(
   productId: string,

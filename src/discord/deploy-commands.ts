@@ -1,15 +1,8 @@
 import fs from 'fs';
 import {REST} from '@discordjs/rest';
 import {Routes} from 'discord-api-types/v9';
-import {config as envLoad} from 'dotenv';
 import {discordErr, discordInfo} from '.';
-
-// Load the environment variables into process.env
-envLoad();
-
-const DISCORD_TOKEN: string = process.env.DISCORD_TOKEN ?? '';
-const DISCORD_ID: string = process.env.DISCORD_ID ?? '';
-const DISCORD_GUILD: string = process.env.DISCORD_GUILD ?? '';
+import {DISCORD_OPTS} from './discord-bot';
 
 const commands = [];
 const commandFiles = fs
@@ -23,14 +16,17 @@ for (const file of commandFiles) {
 }
 
 // Create a rest client to post the new commands.
-const rest = new REST({version: '10'}).setToken(DISCORD_TOKEN);
+const rest = new REST({version: '10'}).setToken(DISCORD_OPTS.appToken);
 
 (async () => {
   try {
-    // Add commands.
-    await rest.put(Routes.applicationGuildCommands(DISCORD_ID, DISCORD_GUILD), {
-      body: commands,
-    });
+    // Add commands to the guild it is in.
+    await rest.put(
+      Routes.applicationGuildCommands(DISCORD_OPTS.appId, DISCORD_OPTS.guild),
+      {
+        body: commands,
+      },
+    );
 
     discordInfo('Successfully registered application commands.');
   } catch (err) {

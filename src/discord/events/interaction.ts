@@ -20,6 +20,10 @@ for (const file of commandFiles) {
   commands.set(command.data.name, command);
 }
 
+/**
+ * Called when the interactionCreate event happens, resolves the correct command
+ * and processes it.
+ */
 module.exports = {
   name: 'interactionCreate',
   async execute(interaction: CommandInteraction) {

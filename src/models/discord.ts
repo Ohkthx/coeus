@@ -3,21 +3,15 @@ import mongoose from 'mongoose';
 const {Schema, model} = mongoose;
 
 export interface DiscordConfig {
-  handle: string;
-  channels: {
-    rank: string;
-    analysis: string;
-  };
+  guild: string;
+  admins: string[];
   messages: string[];
 }
 
 const discordSchema = new Schema<DiscordConfig>(
   {
-    handle: String,
-    channels: {
-      rank: String,
-      analysis: String,
-    },
+    guild: String,
+    admins: [String],
     messages: [String],
   },
   {collection: 'discord'},

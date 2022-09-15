@@ -19,11 +19,9 @@ export class DataOpts {
   /**
    * Creates a new set of data collecting and processing options.
    *
-   * @param {number} granularity - Size of a candle in seconds.
    * @param {Date} end - Final timestamp to end candle span, should be most recent.
-   * @param {number} candlesPerBucket - Amount of candles to place in each bucket.
-   * @param {number} totalBuckets - Total amount of buckets.
-   * @param {boolean} pullNewCandles - Get new candles from API if needed.
+   * @param {CandleOpts} candleOpts - Options for processing candles.
+   * @param {BucketOpts} bucketOpts - Options for processing buckets.
    */
   constructor(end: Date, candleOpts: CandleOpts, bucketOpts: BucketOpts) {
     this.cOpts = candleOpts;
@@ -32,6 +30,11 @@ export class DataOpts {
     this.end = end;
   }
 
+  /**
+   * Returns the current Candle Options.
+   *
+   * @returns {CandleOpts} Candle options.
+   */
   get candle(): CandleOpts {
     return {
       granularity: this.cOpts.granularity,
@@ -39,6 +42,11 @@ export class DataOpts {
     };
   }
 
+  /**
+   * Returns the current Bucket Options.
+   *
+   * @returns {BucketOpts} Bucket options.
+   */
   get bucket(): BucketOpts {
     return {
       candlesPer: this.bOpts.candlesPer,
@@ -74,6 +82,9 @@ export class DataOpts {
     return this.candle.granularity / ONE_MINUTE_TO_S;
   }
 
+  /**
+   * Gets a span of time based on the 'start' and 'end' of the options, cleaned.
+   */
   get span(): {start: Date; end: Date} {
     let past = new Date(this.end);
     past.setTime(past.getTime() - this.totalLengthMs);

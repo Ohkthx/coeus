@@ -14,6 +14,15 @@ interface CrossResults {
   fifty200?: CrossChange;
 }
 
+/**
+ * Check if a cross exists between two points.
+ *
+ * @param {number} l1 - First EMA/SMA of the old data.
+ * @param {number} l2 - Second EMA/SMA of the old data.
+ * @param {number} c1 - First EMA/SMA of the new data.
+ * @param {number} c2 - Second EMA/SMA of the new data.
+ * @returns {CrossChange | 'none'} Cross results if any occurred.
+ */
 function cross(
   l1: number,
   l2: number,
@@ -24,11 +33,22 @@ function cross(
   const lRatio = l1 / l2;
   const cRatio = c1 / c2;
 
+  // Calculate if it was golden or death.
   if (lRatio < 1 && cRatio >= 1) return CrossChange.GOLDEN;
   if (lRatio >= 1 && cRatio < 1) return CrossChange.DEATH;
   return 'none';
 }
 
+/**
+ * Converts a cross into text.
+ *
+ * @param {string} pId - Product/pair for the cross.
+ * @param {CrossChange} ch - 'death' or 'golden' value.
+ * @param {number} low - Bottom EMA/SMA of the cross.
+ * @param {number} high - Top of the EMA/SMA of the cross.
+ * @param {'SMA' | 'EMA'} ma - Type of MA that the data was based on.
+ * @returns {string} Text regarding the cross.
+ */
 function crossToText(
   pId: string,
   ch: CrossChange,
@@ -39,6 +59,14 @@ function crossToText(
   return `${pId}: '${ch}' cross ocurred between ${low}-${ma} and ${high}-${ma}.`;
 }
 
+/**
+ * Converts all crosses into text.
+ *
+ * @param {string} pId - Product/pair of the cross.
+ * @param {CrossResults} x - All crosses that occurred.
+ * @param {'SMA' | 'EMA'} ma - Type of MA that was processed.
+ * @returns {string[]} List of crosses that occurred in text form.
+ */
 function convertCross(
   pId: string,
   x: CrossResults,
@@ -46,6 +74,7 @@ function convertCross(
 ): string[] {
   const res: string[] = [];
 
+  // Add the cross data if it existed.
   if (x.twelve26) res.push(crossToText(pId, x.twelve26, 12, 26, ma));
   if (x.twelve50) res.push(crossToText(pId, x.twelve50, 12, 50, ma));
   if (x.twentysix50) res.push(crossToText(pId, x.twentysix50, 26, 50, ma));
@@ -55,6 +84,13 @@ function convertCross(
   return res;
 }
 
+/**
+ * Checks if a cross occurred for a product based on the data provided.
+ *
+ * @param {ProductData} data - Data to compare for crosses.
+ * @param {'SMA' | 'EMA'} ma - Moving average to process.
+ * @returns {string[]} All crosses that occurred for a product in text format.
+ */
 export function crossAnalysis(data: ProductData, ma: 'SMA' | 'EMA'): string[] {
   const lastR = data.lastRanking;
   const currentR = data.currentRanking;
@@ -67,6 +103,13 @@ export function crossAnalysis(data: ProductData, ma: 'SMA' | 'EMA'): string[] {
   return convertCross(data.productId, xResults, ma);
 }
 
+/**
+ * Checks if a cross occurred between to Moving Averages.
+ *
+ * @param {MAValues} l - Old (last) moving average values.
+ * @param {MAValues} c - New (current) moving average values.
+ * @returns {CrossResults} All crosses that occurred.
+ */
 function checkMA(l: MAValues, c: MAValues): CrossResults {
   const res: CrossResults = {};
 

@@ -2,6 +2,9 @@ import {Client} from 'discord.js';
 import {discordInfo} from '..';
 import {DiscordBot} from '../discord-bot';
 
+/**
+ * Called when the ready event happens, updating the discord bots ready status.
+ */
 module.exports = {
   name: 'ready',
   once: true,

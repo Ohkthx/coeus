@@ -1,12 +1,14 @@
 import {codeBlock, spoiler} from 'discord.js';
-import {DISCORD_MAX_RANKING} from '.';
 import {CLOSE_WEIGHT, DIFF_WEIGHT, State, VOLUME_WEIGHT} from '../core';
 import {ProductRanking, SortFilter} from '../core/rank';
-import {
-  DiscordBot,
-  DISCORD_DEST_ANALYSIS,
-  DISCORD_DEST_RANK,
-} from './discord-bot';
+import {DiscordBot, DISCORD_OPTS} from './discord-bot';
+
+// Placeholder data.
+export const PLACEHOLDER_DATA = JSON.stringify(
+  {placeholder: 'No data.'},
+  null,
+  2,
+);
 
 export function getFilterString(filter: SortFilter): string {
   const res: string[] = [];
@@ -19,11 +21,16 @@ export function getFilterString(filter: SortFilter): string {
   return `Filtered Results! Only showing: ${res.join(' ')}\n`;
 }
 
-export function createNotification(cbValue: string, data: string): string {
-  return spoiler(codeBlock(cbValue, data));
+/**
+ * Create a notification, placing it as a spoiler and in code blocks.
+ *
+ * @param {string} cbSyntax - Syntax to use for the codeblock.
+ * @param {string} data - Data to place inside the spoiler and codeblock.
+ * @returns {string} Newly formed notification wrapped.
+ */
+export function createNotification(cbSyntax: string, data: string): string {
+  return spoiler(codeBlock(cbSyntax, data));
 }
-
-export const NULL_DATA = JSON.stringify({placeholder: 'No data.'}, null, 2);
 
 export async function sendAnalysis(data: string[], updateId: string) {
   if (data.length === 0) return;
@@ -38,12 +45,20 @@ export async function sendAnalysis(data: string[], updateId: string) {
     `+ Updated @ISO-8601: ${date.toISOString()}\n\n` +
     `${newData}`;
 
-  await DiscordBot.sendNotification(
-    DISCORD_DEST_ANALYSIS,
+  return DiscordBot.sendNotification(
+    DISCORD_OPTS.analysis.dest,
     createNotification('markdown', res),
   );
 }
 
+/**
+ * Sends the current filtered rankings passed to discord.
+ *
+ * @param {ProductRanking} rankings - Rankings to be sent.
+ * @param {number} total - Total amount of unsorted rankings.
+ * @param {number} dataPoints - Total amount of candles processed.
+ * @param {{id: string, time: number}} update - Current update id and time elapsed.
+ */
 export async function sendRankings(
   rankings: ProductRanking[],
   total: number,
@@ -52,16 +67,21 @@ export async function sendRankings(
 ) {
   let rankPos: number = 0;
 
-  for (let i = 0; i < DISCORD_MAX_RANKING; i++) {
+  // Post the top DISCORD_OPTS max rankings to discord.
+  for (let i = 0; i < DISCORD_OPTS.ranking.max; i++) {
     const msgId = DiscordBot.messageIds[i];
-    let jsonData = NULL_DATA;
+    let jsonData = PLACEHOLDER_DATA;
     if (rankPos < rankings.length) {
       jsonData = JSON.stringify(rankings[rankPos++], null, 2);
     }
 
     if (update) jsonData = `Update Id: ${update.id}\n${jsonData}`;
     const notification = createNotification('json', jsonData);
-    await DiscordBot.editNotification(DISCORD_DEST_RANK, msgId, notification);
+    await DiscordBot.editNotification(
+      DISCORD_OPTS.ranking.dest,
+      msgId,
+      notification,
+    );
   }
 
   const date = new Date();
@@ -73,6 +93,7 @@ export async function sendRankings(
     updateString = `+ UpdateId: ${update.id}, time took: ${update.time}s\n`;
   }
 
+  // Final message to be sent giving information to the current update as a guide.
   const updateText = codeBlock(
     'markdown',
     `Processed ${total} products and ${dpString} candles, filtered ${filtered} rankings.\n` +
@@ -96,8 +117,9 @@ export async function sendRankings(
       `+ 'last' - Data from the past 24hrs.\n` +
       `+ 'last => cov' - Coefficient of Variations.\n`,
   );
-  await DiscordBot.editNotification(
-    DISCORD_DEST_RANK,
+
+  return DiscordBot.editNotification(
+    DISCORD_OPTS.ranking.dest,
     DiscordBot.messageIds[DiscordBot.messageIds.length - 1],
     updateText,
   );

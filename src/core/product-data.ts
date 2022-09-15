@@ -41,28 +41,55 @@ export class ProductData {
     this.oldestISO = oldestISO;
   }
 
+  /**
+   * Get the last timestamp of the candle, otherwise default to oldest possible.
+   *
+   * @returns {Date} Date of the most recent timestamp.
+   */
   get lastTimestamp(): Date {
     const candles = this.getCandles();
     if (candles.length === 0) return new Date(this.oldestISO);
     return new Date(candles[candles.length - 1].openTimeInISO);
   }
 
+  /**
+   * Get the current ranking if they exist.
+   *
+   * @returns {ProductRanking | undefined} Rankin, if found.
+   */
   get ranking(): ProductRanking | undefined {
     return this.currentRanking;
   }
 
+  /**
+   * Get the currently stored candles.
+   *
+   * @returns {SimpleCandle[]} Candles belonging to the product.
+   */
   getCandles(): SimpleCandle[] {
     return PRODUCT_CANDLES.get(this.productId) ?? [];
   }
 
-  setCandles(candles: SimpleCandle[]) {
+  /**
+   * Overrides the currently saved candles with the new candles.
+   *
+   * @param {SimpleCandle[]} candles - Candles to save.
+   */
+  private setCandles(candles: SimpleCandle[]) {
     PRODUCT_CANDLES.set(this.productId, candles);
   }
 
+  /**
+   * Updeates the candles, pulling new information from remote sources. Combines them
+   * with existing data.
+   *
+   * @param {DataOpts} opts - Options that modify what data is pulled from remote sources.
+   */
   async updateCandles(opts: DataOpts) {
     const candles = await getCandles(this.productId, opts, this.lastTimestamp);
     if (candles.length === 0) return;
 
+    // Combine the new data into the old data and save it locally.
     this.setCandles(
       combineCandles(
         this.getCandles(),
@@ -73,12 +100,24 @@ export class ProductData {
     );
   }
 
+  /**
+   * Creates buckets from candles that are currently saved. Buckets are just grouped data
+   * from multiple candles.
+   *
+   * @param {DataOpts} opts - Options that modify how the buckets are created.
+   * @returns {BucketData[]} Newly created grouped candle data.
+   */
   createBuckets(opts: DataOpts): BucketData[] {
     if (this.getCandles().length === 0) return [];
     return createBucketData(this.getCandles(), opts);
   }
 
-  createDayMA(): DayMA {
+  /**
+   * Creates EMA and SMAs based on grouped candles into periods of days.
+   *
+   * @returns {DayMA} EMA and SMAs of the currently existing data.
+   */
+  private createDayMA(): DayMA {
     // Generate the new MAs.
     const opts = new DataOpts(
       this.lastTimestamp,
@@ -116,6 +155,12 @@ export class ProductData {
     return {sma: SMA, ema: EMA};
   }
 
+  /**
+   * Update rankings based on the current candle data.
+   *
+   * @param {number} movement - Current buying/selling ratio, defaults to -1.
+   * @returns {ProductRanking | undefined} Newly calculated ranking if no errors.
+   */
   updateRanking(movement: number = -1): ProductRanking | undefined {
     const opts = new DataOpts(
       this.lastTimestamp,
@@ -129,17 +174,27 @@ export class ProductData {
       },
     );
 
-    this.lastRanking = this.currentRanking;
-    this.currentRanking = makeRanking(
+    const newRanking = makeRanking(
       this.productId,
       this.createBuckets(opts),
       this.createDayMA(),
       movement,
     );
 
-    return this.currentRanking;
+    // Update the rankings if a new one was created.
+    if (newRanking) {
+      this.lastRanking = this.currentRanking;
+      this.currentRanking = newRanking;
+    }
+
+    return newRanking;
   }
 
+  /**
+   * Gets the buying/selling orders from a remote source, calculates the ratio.
+   *
+   * @returns {Promise<number<} Ratio of buying/selling indicating direction.
+   */
   async getMovement(): Promise<number> {
     return AnonymousClient.getOrderCount(this.productId)
       .then((data) => {
@@ -153,21 +208,42 @@ export class ProductData {
       });
   }
 
-  async loadCandles() {
+  /**
+   * Loads candles from a database and saves it locally to be used.
+   */
+  private async loadCandles() {
     if (this.initialized) return;
     const {candles} = await loadCandleData(this.productId);
     PRODUCT_CANDLES.set(this.productId, candles);
     this.initialized = true;
   }
 
+  /**
+   * Get a ProductData from the available products.
+   *
+   * @param {string} productId - Product/paid to obtain.
+   * @returns {ProductData | undefined} Product Data, if found.
+   */
   static find(productId: string): ProductData | undefined {
     return PRODUCT_DATA.get(productId);
   }
 
+  /**
+   * Saves/updates the product data locally in RAM.
+   *
+   * @param {ProductData} data - Data to be saved/updated.
+   */
   static save(data: ProductData) {
     PRODUCT_DATA.set(data.productId, data);
   }
 
+  /**
+   * Intialize a product data, loading the candle data and saving it.
+   *
+   * @param {string} productId - Product/Pair to create data for.
+   * @param {string} oldestISO - Oldest timestamp to default to with no candles found.
+   * @returns {Promise<ProductData>} Newly created data for a product.
+   */
   static async initialize(
     productId: string,
     oldestISO: string,

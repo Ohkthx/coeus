@@ -3,10 +3,12 @@ import {APP_DEBUG, DbCompat} from '.';
 import {LogModel, LogSchema} from './models/log';
 import {ObjectId} from 'bson';
 import {createMessage, Destination, MDSRVClient, Status} from 'mdsrv-client';
+import {config as envLoad} from 'dotenv';
 
 // MDSRV connection.
+envLoad();
+const MDSRV_DISCORD_DEST = process.env.MDSRV_DISCORD_DEST ?? '';
 const mdsrvClient = new MDSRVClient();
-const DISCORD_DEST = process.env.DISCORD_DEST!;
 
 const RED: string = '\x1b[31m';
 const GREEN: string = '\x1b[32m';
@@ -81,12 +83,16 @@ async function mdsrvSend(status: Status, data: string) {
     'coeus',
     'logger',
     Destination.DISCORD,
-    DISCORD_DEST,
+    MDSRV_DISCORD_DEST,
     status,
     data,
   );
 
-  return mdsrvClient.sendMessage(msg);
+  await mdsrvClient.sendMessage(msg).catch((err) => {
+    stderr.write(
+      `${RED}[error: logger] could not send message to MDSRV.${RESET}`,
+    );
+  });
 }
 
 interface Log extends LogSchema {}

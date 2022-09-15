@@ -2,8 +2,7 @@ import {SlashCommandBuilder} from '@discordjs/builders';
 import {codeBlock, CommandInteraction} from 'discord.js';
 import {State} from '../../core';
 import {SortFilter} from '../../core/rank';
-
-const DISCORD_ADMIN: string = process.env.DISCORD_ADMIN ?? '';
+import {DISCORD_OPTS} from '../discord-bot';
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -42,7 +41,7 @@ module.exports = {
     ),
 
   async execute(interaction: CommandInteraction) {
-    const isAdmin = interaction.user.id === DISCORD_ADMIN;
+    const isAdmin = DISCORD_OPTS.admins.includes(interaction.user.id);
 
     if (!isAdmin) {
       return interaction.reply({
