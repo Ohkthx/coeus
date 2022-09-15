@@ -25,6 +25,11 @@ module.exports = {
       subcmd
         .setName('update')
         .setDescription('Gives you the current Update Id.'),
+    )
+    .addSubcommand((subcmd) =>
+      subcmd
+        .setName('filter')
+        .setDescription('Gives you the current filter for rank results.'),
     ),
 
   async execute(interaction: CommandInteraction) {
@@ -40,6 +45,8 @@ module.exports = {
         return getRank(interaction);
       case 'update':
         return getUpdate(interaction);
+      case 'filter':
+        return getFilter(interaction);
       default:
         return interaction.reply({
           content: `Unknown get command.`,
@@ -85,6 +92,26 @@ function getUpdate(interaction: CommandInteraction) {
 
   return interaction.reply({
     content: `Update Id: ${bold(State.updateId)}`,
+    ephemeral: false,
+  });
+}
+
+function getFilter(interaction: CommandInteraction) {
+  if (!interaction.isChatInputCommand()) {
+    return interaction.reply({
+      content: `This is not a chat input command.`,
+      ephemeral: true,
+    });
+  }
+
+  let filter = JSON.stringify({none: 'no filters'}, null, 2);
+  const stateFilter = State.getFilter();
+  if (Object.entries(stateFilter).length > 0) {
+    filter = JSON.stringify(stateFilter, null, 2);
+  }
+
+  return interaction.reply({
+    content: codeBlock('json', filter),
     ephemeral: false,
   });
 }

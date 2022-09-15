@@ -13,18 +13,18 @@ export interface SortFilter {
 }
 
 export interface MAValues {
-  twelve: number;
-  twentysix: number;
-  fifty: number;
-  twohundred: number;
+  twelve?: number;
+  twentysix?: number;
+  fifty?: number;
+  twohundred?: number;
 }
 
-export interface DayMA {
+export interface MASet {
   sma: MAValues;
   ema: MAValues;
 }
 
-export interface ProductRanking extends DayMA {
+export interface ProductRanking extends MASet {
   productId: string;
   ranking: number;
   dataPoints: number;
@@ -49,20 +49,7 @@ export interface ProductRanking extends DayMA {
   };
 }
 
-export const UNSET_DAY_MA: DayMA = {
-  sma: {
-    twelve: -1,
-    twentysix: -1,
-    fifty: -1,
-    twohundred: -1,
-  },
-  ema: {
-    twelve: -1,
-    twentysix: -1,
-    fifty: -1,
-    twohundred: -1,
-  },
-};
+export const UNSET_MA_SET: MASet = {sma: {}, ema: {}};
 
 /**
  * Sorts rankings based on a filter provided. Rankings are returned from greatest
@@ -90,18 +77,33 @@ export function sortRankings(
 }
 
 /**
+ * Removes fields that are error'd out.
+ */
+function cleanMA(maValues: MAValues): MAValues {
+  const oldValues: MAValues | any = maValues;
+  const newValues: MAValues | any = {};
+
+  for (const [key, value] of Object.entries(oldValues)) {
+    if (!value) continue;
+    newValues[key] = value;
+  }
+
+  return newValues;
+}
+
+/**
  * Convert Bucket Data into an actual ranking.
  *
  * @param {string} productId - Product/pair to process.
  * @param {BucketData[]} data - Bucket data to process and compile into a ranking.
- * @param {DayMA} dayMA - EMA/SMA data to add to ranking.
+ * @param {MASet} maSet - EMA/SMA data to add to ranking.
  * @param {number} movement - Buying/Selling ratio to add to ranking.
  * @returns {ProductRanking | undefined} Ranking of the product, if no errors.
  */
 export function makeRanking(
   productId: string,
   data: BucketData[],
-  dayMA: DayMA,
+  maSet: MASet,
   movement: number,
 ): ProductRanking | undefined {
   if (data.length === 0) return;
@@ -132,8 +134,8 @@ export function makeRanking(
       diff: quickFix(diffRatio, 4),
       volume: quickFix(volumeRatio, 4),
     },
-    sma: dayMA.sma,
-    ema: dayMA.ema,
+    sma: cleanMA(maSet.sma),
+    ema: cleanMA(maSet.ema),
     last: {
       volume: toFixed(productId, last.volume.total),
       volumeAvg: toFixed(productId, last.volume.avg),

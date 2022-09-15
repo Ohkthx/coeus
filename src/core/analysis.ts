@@ -29,7 +29,7 @@ function cross(
   c1: number,
   c2: number,
 ): CrossChange | 'none' {
-  if (l1 === -1 || l2 === -1 || c1 === -1 || c2 === -1) return 'none';
+  if (l1 <= 0 || l2 <= 0 || c1 <= 0 || c2 <= 0) return 'none';
   const lRatio = l1 / l2;
   const cRatio = c1 / c2;
 
@@ -114,10 +114,12 @@ function checkMA(l: MAValues, c: MAValues): CrossResults {
   const res: CrossResults = {};
 
   // 12-26 cross.
+  if (!l.twelve || !l.twentysix || !c.twelve || !c.twentysix) return res;
   let change = cross(l.twelve, l.twentysix, c.twelve, c.twentysix);
   if (change !== 'none') res.twelve26 = change;
 
   // 12-50 cross.
+  if (!l.fifty || !c.fifty) return res;
   change = cross(l.twelve, l.fifty, c.twelve, c.fifty);
   if (change !== 'none') res.twelve50 = change;
 
@@ -126,6 +128,7 @@ function checkMA(l: MAValues, c: MAValues): CrossResults {
   if (change !== 'none') res.twentysix50 = change;
 
   // 26-200 cross.
+  if (!l.twohundred || !c.twohundred) return res;
   change = cross(l.twentysix, l.twohundred, c.twentysix, c.twohundred);
   if (change !== 'none') res.twentysix200 = change;
 

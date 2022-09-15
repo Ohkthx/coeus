@@ -34,7 +34,7 @@ module.exports = <Event>{
               data.products.includes(r.productId),
             );
           } else {
-            retData = State.getSortedRankings(data.count);
+            retData = State.getSortedRankings({count: data.count});
           }
 
           res = `${res}[${param}: 'completed'] `;

@@ -6,16 +6,22 @@ import {BucketData, createBucketData} from './bucket';
 import {combineCandles, getCandles, loadCandleData} from './candle';
 import {DataOpts} from './opts';
 import {
-  DayMA,
   ema,
   makeRanking,
+  MASet,
   ProductRanking,
   sma,
-  UNSET_DAY_MA,
+  UNSET_MA_SET,
 } from './rank';
 
-function lastN(n: number[]): number {
-  return n.length === 0 ? -1 : n[n.length - 1];
+function lastN(
+  n: number[],
+  pId: string,
+  mode: 'quote' | 'base',
+): number | undefined {
+  if (n.length === 0) return;
+
+  return toFixed(pId, n[n.length - 1], mode);
 }
 
 const PRODUCT_CANDLES = new Map<string, SimpleCandle[]>();
@@ -115,9 +121,9 @@ export class ProductData {
   /**
    * Creates EMA and SMAs based on grouped candles into periods of days.
    *
-   * @returns {DayMA} EMA and SMAs of the currently existing data.
+   * @returns {MASet} EMA and SMAs of the currently existing data.
    */
-  private createDayMA(): DayMA {
+  private createMASet(): MASet {
     // Generate the new MAs.
     const opts = new DataOpts(
       this.lastTimestamp,
@@ -134,22 +140,22 @@ export class ProductData {
     const q = 'quote';
     const pId = this.productId;
     const closes = this.createBuckets(opts).map((d) => d.price.close);
-    if (closes.length === 0) return UNSET_DAY_MA;
+    if (closes.length === 0) return UNSET_MA_SET;
 
     // Get the SMAs
     const SMA = {
-      twelve: toFixed(pId, lastN(sma(closes, 12)), q),
-      twentysix: toFixed(pId, lastN(sma(closes, 26)), q),
-      fifty: toFixed(pId, lastN(sma(closes, 50)), q),
-      twohundred: toFixed(pId, lastN(sma(closes, 200)), q),
+      twelve: lastN(sma(closes, 12), pId, q),
+      twentysix: lastN(sma(closes, 26), pId, q),
+      fifty: lastN(sma(closes, 50), pId, q),
+      twohundred: lastN(sma(closes, 200), pId, q),
     };
 
     // Get the EMAs
     const EMA = {
-      twelve: toFixed(pId, lastN(ema(closes, 12)), q),
-      twentysix: toFixed(pId, lastN(ema(closes, 26)), q),
-      fifty: toFixed(pId, lastN(ema(closes, 50)), q),
-      twohundred: toFixed(pId, lastN(ema(closes, 200)), q),
+      twelve: lastN(ema(closes, 12), pId, q),
+      twentysix: lastN(ema(closes, 26), pId, q),
+      fifty: lastN(ema(closes, 50), pId, q),
+      twohundred: lastN(ema(closes, 200), pId, q),
     };
 
     return {sma: SMA, ema: EMA};
@@ -177,7 +183,7 @@ export class ProductData {
     const newRanking = makeRanking(
       this.productId,
       this.createBuckets(opts),
-      this.createDayMA(),
+      this.createMASet(),
       movement,
     );
 

@@ -18,18 +18,24 @@ for (const file of commandFiles) {
 // Create a rest client to post the new commands.
 const rest = new REST({version: '10'}).setToken(DISCORD_OPTS.appToken);
 
-(async () => {
-  try {
-    // Add commands to the guild it is in.
-    await rest.put(
-      Routes.applicationGuildCommands(DISCORD_OPTS.appId, DISCORD_OPTS.guild),
-      {
-        body: commands,
-      },
-    );
+discordInfo(`App Id: ${DISCORD_OPTS.appId}`);
+discordInfo(`Guild Id: ${DISCORD_OPTS.guild}`);
+discordInfo('Registering application commands.');
 
-    discordInfo('Successfully registered application commands.');
-  } catch (err) {
-    discordErr(`${err}`);
-  }
-})();
+(async () => {
+  // Add commands to the guild it is in.
+  await rest.put(
+    Routes.applicationGuildCommands(DISCORD_OPTS.appId, DISCORD_OPTS.guild),
+    {
+      body: commands,
+    },
+  );
+
+  discordInfo('Successfully registered application commands.');
+})()
+  .catch((err) => {
+    discordErr(`Unable to register commands:\n${err}`);
+  })
+  .finally(() => {
+    process.exit();
+  });

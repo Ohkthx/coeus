@@ -42,6 +42,7 @@ envLoad();
 
 const admins = process.env.DISCORD_ADMINS ?? '';
 DISCORD_OPTS.admins = admins.split(',');
+DISCORD_OPTS.appId = process.env.DISCORD_ID ?? '';
 DISCORD_OPTS.appToken = process.env.DISCORD_TOKEN ?? '';
 DISCORD_OPTS.handle = process.env.DISCORD_HANDLE ?? 'COEUS';
 DISCORD_OPTS.guild = process.env.DISCORD_GUILD ?? '';

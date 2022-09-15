@@ -37,7 +37,7 @@ export class State {
   private static updating: boolean = false;
   private static isEnabled: boolean = true;
   private static currentRankings = new Map<string, ProductRanking>();
-  private static sortFilter: SortFilter = {count: -1};
+  private static sortFilter: SortFilter = {};
   static updateId: string = getUniqueId();
 
   /**
@@ -88,7 +88,7 @@ export class State {
   static updateFilter(filter: SortFilter) {
     const old = State.getFilter();
 
-    if (filter.count !== old.count) {
+    if (filter.count !== undefined && filter.count !== old.count) {
       State.sortFilter.count = filter.count;
     }
 
@@ -128,13 +128,15 @@ export class State {
   /**
    * Get all of the rankings for the known products/pairs.
    *
-   * @param {number} count - Limits the amount obtained. Default is obtain all.
+   * @param {SortFilter} filterOverride - Optional: Overrides the base filter if provided.
    * @returns {ProductRanking[]} Sorted rankings from "best" to "worst"
    */
-  static getSortedRankings(count: number = -1): ProductRanking[] {
+  static getSortedRankings(filterOverride?: SortFilter): ProductRanking[] {
+    if (!filterOverride) filterOverride = State.getFilter();
+
     const rankings: ProductRanking[] = [];
     for (const r of State.getUnsortedRankings()) rankings.push(r);
-    return sortRankings(rankings, State.getFilter());
+    return sortRankings(rankings, filterOverride);
   }
 
   static getDataPoints(): number {
@@ -306,7 +308,7 @@ async function initState(opts: DataOpts) {
 async function updateData(): Promise<ProductRanking[]> {
   coreInfo('\nupdating data now!');
   const opts = State.config;
-  await DiscordBot.setActivity(`with updates.`);
+  DiscordBot.setActivity(`with updates.`);
 
   // Update the currencies.
   const sw = new Stopwatch();
@@ -354,7 +356,7 @@ async function updateData(): Promise<ProductRanking[]> {
       time: Number((sw.totalMs / 1000 + sw.print()).toFixed(4)),
     },
   );
-  await DiscordBot.setActivity(`with: ${updateId}`);
+  DiscordBot.setActivity(`with: ${updateId}`);
   State.updateId = updateId;
   coreDebug(`Bucket and Rank creation execution took ${sw.stop()} seconds.`);
 
