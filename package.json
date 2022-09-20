@@ -24,6 +24,8 @@
     "@types/express": "^4.17.13",
     "@types/node": "^17.0.10",
     "@types/node-cron": "^3.0.2",
+    "@types/object-hash": "^2.2.1",
+    "@types/ws": "^8.5.3",
     "coinbase-pro-node": "^5.0.0",
     "discord.js": "^14.3.0",
     "dotenv": "^16.0.1",
@@ -31,7 +33,9 @@
     "mathjs": "^11.0.1",
     "mdsrv-client": "^1.0.3",
     "mongoose": "^6.5.2",
-    "node-cron": "^3.0.2"
+    "node-cron": "^3.0.2",
+    "object-hash": "^3.0.0",
+    "ws": "^8.8.1"
   },
   "devDependencies": {
     "eslint": "^8.6.0",

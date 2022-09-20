@@ -2,6 +2,7 @@ import {Product as IProduct} from 'coinbase-pro-node';
 import {abs, log10} from 'mathjs';
 import {USE_SANDBOX} from '.';
 import {Product, ProductModel} from './models';
+import {getHash} from './utils';
 
 let initialized: boolean = false;
 const PRODUCTS = new Map<string, Product>();
@@ -20,14 +21,21 @@ export class Products {
    * Add the product to the local memory and database.
    *
    * @param {Product | Product[]} products - Product/pair(s) to update.
+   * @returns {Promise<Product[]>} Changed products compared to stored locally.
    */
-  static async update(products: IProduct | IProduct[]) {
+  static async update(products: IProduct | IProduct[]): Promise<Product[]> {
     if (!Array.isArray(products)) products = [products];
 
+    const updated: Product[] = [];
     for (const p of products) {
       // Change it locally.
-      const product = <Product>p;
-      product.useSandbox = USE_SANDBOX;
+      const product = Products.convert(p, USE_SANDBOX);
+
+      // Check to see if it has been modified.
+      const oldHash = getHash(Products.get(p.id) ?? {});
+      if (oldHash === getHash(product)) continue;
+
+      updated.push(product);
       PRODUCTS.set(p.id, product);
 
       // Update the database.
@@ -39,6 +47,8 @@ export class Products {
         },
       );
     }
+
+    return updated;
   }
 
   /**
@@ -49,6 +59,15 @@ export class Products {
    */
   static get(productId: string): Product | undefined {
     return PRODUCTS.get(productId);
+  }
+
+  /**
+   * Obtains all of the currently held products.
+   *
+   * @returns {Product[]} List of all products.
+   */
+  static getAll(): Product[] {
+    return [...PRODUCTS.values()];
   }
 
   /**
@@ -139,6 +158,63 @@ export class Products {
 
     return ids;
   }
+
+  /**
+   * Strips any other potentially held data from the product.
+   *
+   * @param {Product} product - Product to remove data from.
+   * @returns {Product} Freshly cleaned product.
+   */
+  static clean(product: Product): Product {
+    return <Product>{
+      id: product.id,
+      useSandbox: product.useSandbox,
+      quote_currency: product.quote_currency,
+      base_min_size: product.base_min_size,
+      base_max_size: product.base_max_size,
+      quote_increment: product.quote_increment,
+      base_increment: product.base_increment,
+      display_name: product.display_name,
+      min_market_funds: product.min_market_funds,
+      max_market_funds: product.max_market_funds,
+      margin_enabled: product.margin_enabled,
+      cancel_only: product.cancel_only,
+      limit_only: product.limit_only,
+      post_only: product.post_only,
+      status: product.status,
+      status_message: product.status_message,
+      trading_disabled: product.trading_disabled,
+    };
+  }
+
+  /**
+   * Converts an API version of a product to a locally stored type.
+   *
+   * @param {IProduct} apiProduct - API version of the product.
+   * @param {boolean} sandbox - Production or Sandbox version.
+   * @returns {Product} Converted product.
+   */
+  static convert(apiProduct: IProduct, sandbox: boolean): Product {
+    return <Product>{
+      id: apiProduct.id,
+      useSandbox: sandbox,
+      quote_currency: apiProduct.quote_currency,
+      base_min_size: apiProduct.base_min_size,
+      base_max_size: apiProduct.base_max_size,
+      quote_increment: apiProduct.quote_increment,
+      base_increment: apiProduct.base_increment,
+      display_name: apiProduct.display_name,
+      min_market_funds: apiProduct.min_market_funds,
+      max_market_funds: apiProduct.max_market_funds,
+      margin_enabled: apiProduct.margin_enabled,
+      cancel_only: apiProduct.cancel_only,
+      limit_only: apiProduct.limit_only,
+      post_only: apiProduct.post_only,
+      status: apiProduct.status,
+      status_message: apiProduct.status_message,
+      trading_disabled: apiProduct.trading_disabled,
+    };
+  }
 }
 
 /**
@@ -215,7 +291,9 @@ export async function initProduct() {
   const products = await ProductModel.find({useSandbox: USE_SANDBOX}, null, {
     lean: true,
   });
+
+  // Clean and store the data locally.
   for (const p of products) {
-    PRODUCTS.set(p.id, p);
+    PRODUCTS.set(p.id, Products.clean(p));
   }
 }

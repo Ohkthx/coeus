@@ -1,3 +1,5 @@
+import objectHash from 'object-hash';
+
 /**
  * Trims a number to the desired amount of decimal places.
  *
@@ -107,4 +109,14 @@ export function getUniqueId(): string {
   const index1 = randomInt(0, color.length);
   const index2 = randomInt(0, item.length);
   return `${color[index1]}-${item[index2]}`;
+}
+
+/**
+ * Generates a hash for the object that is passed.
+ *
+ * @param {Object} obj - Object to be hashed.
+ * @returns {string} Hash of the object.
+ */
+export function getHash(obj: Object): string {
+  return objectHash(obj);
 }

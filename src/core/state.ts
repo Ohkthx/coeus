@@ -13,6 +13,9 @@ import {DataOpts} from './opts';
 import {sendAnalysis, sendRankings} from '../discord/notification';
 import {crossAnalysis} from './analysis';
 import {DiscordBot} from '../discord/discord-bot';
+import {discordWarn} from '../discord';
+import {EmitEventType, EmitServer} from '../emitter';
+import * as WebSocket from 'ws';
 
 const PRODUCT_OPTS: ProductOptions = {
   include: ['USD'],
@@ -172,7 +175,11 @@ export class State {
   static async updateDataWrapper() {
     // Prevent running the updater while it already is running or disabled.
     await delay(20000);
-    if (State.isUpdating || !State.isEnabled) return;
+    if (State.isUpdating) {
+      discordWarn(`still processing prior update, skipping.`);
+      return;
+    } else if (!State.isEnabled) return;
+
     State.updating = true;
     await updateData()
       .then(() => {})
@@ -197,6 +204,38 @@ export class State {
     return res.concat(crossAnalysis(pData, 'EMA'));
   }
 
+  static setCallbacks() {
+    if (!State.initialized) {
+      throw new Error('cannot create callbacks till state is initialized.');
+    }
+
+    EmitServer.onConnect((client: WebSocket) => {
+      const msg = EmitServer.createMessage(
+        EmitEventType.PRODUCT,
+        Products.getAll(),
+      );
+      EmitServer.send(client, msg);
+    });
+
+    // Send the initial currencies.
+    EmitServer.onConnect((client: WebSocket) => {
+      const msg = EmitServer.createMessage(
+        EmitEventType.CURRENCY,
+        Currencies.getAll(),
+      );
+      EmitServer.send(client, msg);
+    });
+
+    // Send the initial rankings.
+    EmitServer.onConnect((client: WebSocket) => {
+      const msg = EmitServer.createMessage(
+        EmitEventType.RANKING,
+        State.getSortedRankings(),
+      );
+      EmitServer.send(client, msg);
+    });
+  }
+
   /**
    * Wraps initState and initializes the state.
    * A global object that handles the data.
@@ -217,6 +256,7 @@ export class State {
       .finally(() => {
         State.initialized = true;
         State.updating = false;
+        State.setCallbacks();
       });
   }
 }
@@ -228,7 +268,17 @@ export class State {
  */
 async function initState(opts: DataOpts) {
   new State(opts);
-  await DiscordBot.setActivity(`with updates.`);
+
+  // Run on periods of the candle size.
+  const cronSchedule = `*/${opts.candleSizeMin} * * * *`;
+  if (!validate(cronSchedule)) {
+    throw new Error(`invalid cron schedule provided: '${cronSchedule}'`);
+  }
+
+  coreInfo(`update period of ${opts.candleSizeMin} min currently set.`);
+  schedule(cronSchedule, State.updateDataWrapper);
+
+  DiscordBot.setActivity(`with updates.`);
 
   // Load all of the products and currencies.
   await initProduct();
@@ -257,8 +307,8 @@ async function initState(opts: DataOpts) {
     const pData = ProductData.find(pId);
     if (!pData) continue;
 
-    const movement = await pData.getMovement();
-    const ranking = pData.updateRanking(movement);
+    // Not passing movement to updateRAnking() due to this being old data.
+    const ranking = pData.updateRanking();
     if (ranking) State.setRanking(ranking);
   }
 
@@ -273,30 +323,10 @@ async function initState(opts: DataOpts) {
       time: Number((sw.totalMs / 1000 + sw.print()).toFixed(4)),
     },
   );
-  await DiscordBot.setActivity(`with: ${updateId}`);
+  DiscordBot.setActivity(`with: ${updateId}`);
   State.updateId = updateId;
   coreDebug(`Bucket and Rank creation execution took ${sw.stop()} seconds.`);
   coreInfo(`timestamp: ${State.timestamp.toISOString()}.`);
-
-  // Update the currencies.
-  sw.restart();
-  await updateCurrencies();
-  coreDebug(`Currency updates execution took ${sw.stop()} seconds.`);
-
-  // Update the products.
-  sw.restart();
-  await updateProducts();
-  coreDebug(`Product updates execution took ${sw.stop()} seconds.`);
-
-  // Run on periods of the candle size.
-  const cronSchedule = `*/${opts.candleSizeMin} * * * *`;
-  if (!validate(cronSchedule)) {
-    throw new Error(`invalid cron schedule provided: '${cronSchedule}'`);
-  }
-
-  coreInfo(`update period of ${opts.candleSizeMin} min currently set.`);
-  schedule(cronSchedule, State.updateDataWrapper);
-
   coreDebug(`Startup execution took ${sw.totalMs / 1000} seconds.`);
 }
 
@@ -345,6 +375,13 @@ async function updateData(): Promise<ProductRanking[]> {
     if (ranking) State.setRanking(ranking);
   }
 
+  // Send the updated rankings to the websocket.
+  const emitRanking = EmitServer.createMessage(
+    EmitEventType.RANKING,
+    State.getSortedRankings(),
+  );
+  EmitServer.broadcast(emitRanking);
+
   // Send the updated rankings to discord.
   const updateId = getUniqueId();
   sendRankings(
@@ -378,6 +415,11 @@ async function updateData(): Promise<ProductRanking[]> {
   }
   coreDebug(`Cross analysis took ${sw.stop()} seconds.`);
 
+  const emitMessage = EmitServer.createMessage(
+    EmitEventType.MESSAGE,
+    `'${updateId}' completed: ${sw.totalMs / 1000} seconds.`,
+  );
+  EmitServer.broadcast(emitMessage);
   coreDebug(`Total execution took ${sw.totalMs / 1000} seconds.`);
   coreInfo('update complete.\n');
 
@@ -389,16 +431,20 @@ async function updateData(): Promise<ProductRanking[]> {
  */
 async function updateProducts() {
   // Get the products.
-  return AnonymousClient.getProducts()
+  const updated = await AnonymousClient.getProducts()
     .then((products) => {
       return Products.update(products);
     })
     .catch((err) => {
       if (err instanceof Error) coreErr(err.message);
-      else {
-        coreErr(`odd error... ${err}`);
-      }
+      else coreErr(`odd error... ${err}`);
+      return [];
     });
+
+  if (updated.length > 0) {
+    const msg = EmitServer.createMessage(EmitEventType.PRODUCT, updated);
+    EmitServer.broadcast(msg);
+  }
 }
 
 /**
@@ -406,14 +452,18 @@ async function updateProducts() {
  */
 async function updateCurrencies() {
   // Get the currencies.
-  return AnonymousClient.getCurrencies()
+  const updated = await AnonymousClient.getCurrencies()
     .then((currencies) => {
       return Currencies.update(currencies);
     })
     .catch((err) => {
       if (err instanceof Error) coreErr(err.message);
-      else {
-        coreErr(`odd error... ${err}`);
-      }
+      else coreErr(`odd error... ${err}`);
+      return [];
     });
+
+  if (updated.length > 0) {
+    const msg = EmitServer.createMessage(EmitEventType.CURRENCY, updated);
+    EmitServer.broadcast(msg);
+  }
 }

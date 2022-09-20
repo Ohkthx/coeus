@@ -11,6 +11,7 @@ import {HTTPServer} from './rest';
 import {APP_DEBUG, DB_DATABASE, USE_SANDBOX, appInfo, appErr, appWarn} from '.';
 import {DataOpts} from './core/opts';
 import {DiscordBot} from './discord/discord-bot';
+import {EmitServer} from './emitter';
 
 appInfo(`APP_DEBUG set to '${APP_DEBUG}'`);
 appInfo(`DB_DATABASE set to '${DB_DATABASE}'`);
@@ -64,6 +65,9 @@ async function killAll() {
   // Make the connection to the database.
   await connect(`mongodb://localhost/${DB_DATABASE}`);
 
+  // Initialize the Emit Server, but do not start yet.
+  EmitServer.init();
+
   // Load the console commands and events.
   ConsoleState.loadAll();
 
@@ -72,6 +76,9 @@ async function killAll() {
 
   // Initialize the core.
   await State.initWrapper(DATA_OPTS);
+
+  // Start the EMIT server.
+  EmitServer.enable();
 
   // Start the REST server.
   await HTTPServer.start();

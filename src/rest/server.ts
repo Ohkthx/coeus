@@ -52,13 +52,13 @@ router.use((_req: Request, res: Response, _next: NextFunction) => {
 
 export class HTTPServer {
   static isActive: boolean = false;
-  private static httpServer: http.Server = http.createServer(router);
+  static server: http.Server = http.createServer(router);
 
   /**
    * Starts the rest server.
    */
   static async start() {
-    HTTPServer.httpServer.listen(DEFAULT_REST_PORT, () => {
+    HTTPServer.server.listen(DEFAULT_REST_PORT, () => {
       HTTPServer.isActive = true;
       restInfo(`started on port ${DEFAULT_REST_PORT}.`);
     });
@@ -68,9 +68,9 @@ export class HTTPServer {
    * Stops the server.
    */
   static stop() {
-    if (!HTTPServer.httpServer) return;
+    if (!HTTPServer.server) return;
 
-    HTTPServer.httpServer.close(() => {
+    HTTPServer.server.close(() => {
       HTTPServer.isActive = false;
     });
   }
