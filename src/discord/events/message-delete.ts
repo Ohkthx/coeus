@@ -1,5 +1,4 @@
-import {CommandInteraction, Message} from 'discord.js';
-import {SlashCommandBuilder} from '@discordjs/builders';
+import {Message} from 'discord.js';
 import {discordErr} from '..';
 import {DiscordBot, DISCORD_OPTS} from '../discord-bot';
 import {createNotification, PLACEHOLDER_DATA} from '../notification';
@@ -20,7 +19,7 @@ module.exports = {
 
       // Message deleted, need to remove and recreate.
       msgIds.splice(index, 1);
-      const newMsg = createNotification('json', PLACEHOLDER_DATA);
+      const newMsg = createNotification('json', PLACEHOLDER_DATA, true);
       const msg = await DiscordBot.sendNotification(
         DISCORD_OPTS.ranking.dest,
         newMsg,

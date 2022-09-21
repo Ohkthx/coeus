@@ -7,6 +7,12 @@ import {getHash} from './utils';
 let initialized: boolean = false;
 const CURRENCIES = new Map<string, Currency>();
 
+export interface CurrencyUpdate {
+  updated: Currency[];
+  added: Currency[];
+  changes: string[];
+}
+
 export class Currencies {
   constructor() {}
 
@@ -14,22 +20,32 @@ export class Currencies {
    * Add the currency to the local memory and database.
    *
    * @param {Currency | Currency[]} currencies - Currency to update.
-   * @returns {Promise<Currency[]} Changed currencies compared to locally stored.
+   * @returns {Promise<CurrencyUpdate>} Changed currencies compared to locally stored.
    */
   static async update(
     currencies: ICurrency | ICurrency[],
-  ): Promise<Currency[]> {
+  ): Promise<CurrencyUpdate> {
     if (!Array.isArray(currencies)) currencies = [currencies];
+    const info: CurrencyUpdate = {updated: [], added: [], changes: []};
 
-    const updated: Currency[] = [];
     for (const c of currencies) {
       // Change it locally.
       const currency = Currencies.convert(c, USE_SANDBOX);
 
-      const oldHash = getHash(Currencies.get(c.id) ?? {});
-      if (oldHash === getHash(currency)) continue;
+      // Check to see if it has been modified.
+      const old = Currencies.get(c.id);
+      if (old && getHash(old) === getHash(currency)) continue;
 
-      updated.push(currency);
+      // Label as either new or updated.
+      if (!old) {
+        info.added.push(currency);
+        info.changes.push(`${c.id}: added.`);
+      } else {
+        // Is an update, add and calculate changes.
+        info.updated.push(currency);
+        info.changes.push(...Currencies.calcChanges(old, currency));
+      }
+
       CURRENCIES.set(c.id, currency);
 
       // Update the database.
@@ -42,7 +58,7 @@ export class Currencies {
       );
     }
 
-    return updated;
+    return info;
   }
 
   /**
@@ -113,6 +129,45 @@ export class Currencies {
       max_precision: apiCurrency.max_precision,
       status: apiCurrency.status,
     };
+  }
+
+  /**
+   * Compares the changes between two currencies, outlining their differences.
+   *
+   * @param {Product} oldCurrency - Original currency.
+   * @param {Product} newCurrency - New currency.
+   * @returns {string[]} Changes between the old version and the new version.
+   */
+  static calcChanges(oldCurrency: Currency, newCurrency: Currency): string[] {
+    const pId: string = newCurrency.id;
+    const changes: string[] = [];
+
+    // Used to replace underscores with spaces.
+    const r = (text: string): string => {
+      return text.replace(/_/g, ' ');
+    };
+
+    for (const [key, value] of Object.entries(newCurrency)) {
+      if (!Object.keys(oldCurrency).includes(key)) {
+        changes.push(`${pId}: ['${r(key)}'] = '${value}' added.`);
+        continue;
+      }
+
+      const oldValue = Object(oldCurrency)[key];
+      if (oldValue === value) continue;
+      changes.push(
+        `${pId}: ['${r(key)}'] changed from '${oldValue}' to '${value}'`,
+      );
+    }
+
+    // Check if any were removed.
+    for (const [key, value] of Object.entries(oldCurrency)) {
+      if (!Object.keys(newCurrency).includes(key)) {
+        changes.push(`${pId}: ['${r(key)}'] = '${value}' removed.`);
+      }
+    }
+
+    return changes;
   }
 }
 

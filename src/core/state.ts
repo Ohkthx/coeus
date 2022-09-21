@@ -3,14 +3,14 @@ import {Stopwatch} from '../stopwatch';
 import {schedule, validate} from 'node-cron';
 import {coreDebug, coreErr, coreInfo, coreWarn} from '.';
 import {ProductRanking, SortFilter, sortRankings} from './rank';
-import {initProduct, ProductOptions, Products} from '../product';
+import {initProduct, ProductOptions, Products, ProductUpdate} from '../product';
 import {AnonymousClient} from '../exchange-api/coinbase';
-import {Currencies, initCurrency} from '../currency';
+import {Currencies, CurrencyUpdate, initCurrency} from '../currency';
 import {delay, getUniqueId} from '../utils';
 import {APP_DEBUG} from '..';
 import {ProductData} from './product-data';
 import {DataOpts} from './opts';
-import {sendAnalysis, sendRankings} from '../discord/notification';
+import {sendAnalysis, sendChanges, sendRankings} from '../discord/notification';
 import {crossAnalysis} from './analysis';
 import {DiscordBot} from '../discord/discord-bot';
 import {discordWarn} from '../discord';
@@ -411,7 +411,7 @@ async function updateData(): Promise<ProductRanking[]> {
   }
 
   if (crosses.length > 0) {
-    sendAnalysis(crosses, updateId);
+    sendAnalysis('Cross', crosses, updateId);
   }
   coreDebug(`Cross analysis took ${sw.stop()} seconds.`);
 
@@ -431,19 +431,32 @@ async function updateData(): Promise<ProductRanking[]> {
  */
 async function updateProducts() {
   // Get the products.
-  const updated = await AnonymousClient.getProducts()
-    .then((products) => {
-      return Products.update(products);
-    })
-    .catch((err) => {
-      if (err instanceof Error) coreErr(err.message);
-      else coreErr(`odd error... ${err}`);
-      return [];
-    });
+  const {updated, added, changes}: ProductUpdate =
+    await AnonymousClient.getProducts()
+      .then((products) => {
+        return Products.update(products);
+      })
+      .catch((err) => {
+        if (err instanceof Error) coreErr(err.message);
+        else coreErr(`odd error... ${err}`);
+        return {updated: [], added: [], changes: []};
+      });
 
-  if (updated.length > 0) {
-    const msg = EmitServer.createMessage(EmitEventType.PRODUCT, updated);
+  // Send the data to the websocket.
+  const total = updated.concat(added);
+  if (total.length > 0) {
+    let msg = EmitServer.createMessage(EmitEventType.PRODUCT, total);
     EmitServer.broadcast(msg);
+
+    if (changes.length > 0) {
+      msg = EmitServer.createMessage(EmitEventType.CHANGES, changes);
+      EmitServer.broadcast(msg);
+    }
+  }
+
+  // Send the changes to discord.
+  if (changes.length > 0) {
+    await sendChanges('Product', changes, State.updateId);
   }
 }
 
@@ -452,18 +465,31 @@ async function updateProducts() {
  */
 async function updateCurrencies() {
   // Get the currencies.
-  const updated = await AnonymousClient.getCurrencies()
-    .then((currencies) => {
-      return Currencies.update(currencies);
-    })
-    .catch((err) => {
-      if (err instanceof Error) coreErr(err.message);
-      else coreErr(`odd error... ${err}`);
-      return [];
-    });
+  const {updated, added, changes}: CurrencyUpdate =
+    await AnonymousClient.getCurrencies()
+      .then((currencies) => {
+        return Currencies.update(currencies);
+      })
+      .catch((err) => {
+        if (err instanceof Error) coreErr(err.message);
+        else coreErr(`odd error... ${err}`);
+        return {updated: [], added: [], changes: []};
+      });
 
-  if (updated.length > 0) {
-    const msg = EmitServer.createMessage(EmitEventType.CURRENCY, updated);
+  // Send the data to the websocket.
+  const total = updated.concat(added);
+  if (total.length > 0) {
+    let msg = EmitServer.createMessage(EmitEventType.CURRENCY, total);
     EmitServer.broadcast(msg);
+
+    if (changes.length > 0) {
+      msg = EmitServer.createMessage(EmitEventType.CHANGES, changes);
+      EmitServer.broadcast(msg);
+    }
+  }
+
+  // Send the changes to discord.
+  if (changes.length > 0) {
+    await sendChanges('Currency', changes, State.updateId);
   }
 }

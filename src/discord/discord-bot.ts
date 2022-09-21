@@ -20,6 +20,9 @@ interface DiscordOpts {
   analysis: {
     dest: string;
   };
+  changes: {
+    dest: string;
+  };
   ranking: {
     dest: string;
     messages: string[];
@@ -34,6 +37,7 @@ export const DISCORD_OPTS: DiscordOpts = {
   guild: '',
   admins: [],
   analysis: {dest: ''},
+  changes: {dest: ''},
   ranking: {dest: '', messages: [], max: 5},
 };
 
@@ -48,6 +52,7 @@ DISCORD_OPTS.handle = process.env.DISCORD_HANDLE ?? 'COEUS';
 DISCORD_OPTS.guild = process.env.DISCORD_GUILD ?? '';
 DISCORD_OPTS.ranking.dest = process.env.DISCORD_DEST_RANK ?? '';
 DISCORD_OPTS.analysis.dest = process.env.DISCORD_DEST_ANALYSIS ?? '';
+DISCORD_OPTS.changes.dest = process.env.DISCORD_DEST_CHANGES ?? '';
 
 export class DiscordBot {
   private static client: Client<true> | undefined;
@@ -309,7 +314,7 @@ export class DiscordBot {
     // Recreate the missing messages with placeholder data.
     const missing = DISCORD_OPTS.ranking.max + 1 - msgIds.length;
     for (let i = 0; i < missing; i++) {
-      const newMsg = createNotification('json', PLACEHOLDER_DATA);
+      const newMsg = createNotification('json', PLACEHOLDER_DATA, true);
       const msg = await DiscordBot.sendNotification(
         DISCORD_OPTS.ranking.dest,
         newMsg,

@@ -6,6 +6,7 @@ export enum EmitEventType {
   CONNECTED = 'connected',
   CLOSED = 'closed',
   MESSAGE = 'message',
+  CHANGES = 'changes',
   PRODUCT = 'product',
   CURRENCY = 'currency',
   RANKING = 'ranking',

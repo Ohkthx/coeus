@@ -7,6 +7,12 @@ import {getHash} from './utils';
 let initialized: boolean = false;
 const PRODUCTS = new Map<string, Product>();
 
+export interface ProductUpdate {
+  updated: Product[];
+  added: Product[];
+  changes: string[];
+}
+
 export interface ProductOptions {
   include?: string[];
   exclude?: string[];
@@ -21,21 +27,30 @@ export class Products {
    * Add the product to the local memory and database.
    *
    * @param {Product | Product[]} products - Product/pair(s) to update.
-   * @returns {Promise<Product[]>} Changed products compared to stored locally.
+   * @returns {Promise<ProductUpdate>} Changed products compared to stored locally.
    */
-  static async update(products: IProduct | IProduct[]): Promise<Product[]> {
+  static async update(products: IProduct | IProduct[]): Promise<ProductUpdate> {
     if (!Array.isArray(products)) products = [products];
+    const info: ProductUpdate = {updated: [], added: [], changes: []};
 
-    const updated: Product[] = [];
     for (const p of products) {
       // Change it locally.
       const product = Products.convert(p, USE_SANDBOX);
 
       // Check to see if it has been modified.
-      const oldHash = getHash(Products.get(p.id) ?? {});
-      if (oldHash === getHash(product)) continue;
+      const old = Products.get(p.id);
+      if (old && getHash(old) === getHash(product)) continue;
 
-      updated.push(product);
+      // Label as either new or updated.
+      if (!old) {
+        info.added.push(product);
+        info.changes.push(`${p.id}: added.`);
+      } else {
+        // Is an update, add and calculate changes.
+        info.updated.push(product);
+        info.changes.push(...Products.calcChanges(old, product));
+      }
+
       PRODUCTS.set(p.id, product);
 
       // Update the database.
@@ -48,7 +63,7 @@ export class Products {
       );
     }
 
-    return updated;
+    return info;
   }
 
   /**
@@ -214,6 +229,45 @@ export class Products {
       status_message: apiProduct.status_message,
       trading_disabled: apiProduct.trading_disabled,
     };
+  }
+
+  /**
+   * Compares the changes between two products, outlining their differences.
+   *
+   * @param {Product} oldProduct - Original product.
+   * @param {Product} newProduct - New product.
+   * @returns {string[]} Changes between the old version and the new version.
+   */
+  static calcChanges(oldProduct: Product, newProduct: Product): string[] {
+    const pId: string = newProduct.id;
+    const changes: string[] = [];
+
+    // Used to replace underscores with spaces.
+    const r = (text: string): string => {
+      return text.replace(/_/g, ' ');
+    };
+
+    for (const [key, value] of Object.entries(newProduct)) {
+      if (!Object.keys(oldProduct).includes(key)) {
+        changes.push(`${pId}: ['${r(key)}'] = '${value}' added.`);
+        continue;
+      }
+
+      const oldValue = Object(oldProduct)[key];
+      if (oldValue === value) continue;
+      changes.push(
+        `${pId}: ['${r(key)}'] changed from '${oldValue}' to '${value}'`,
+      );
+    }
+
+    // Check if any were removed.
+    for (const [key, value] of Object.entries(oldProduct)) {
+      if (!Object.keys(newProduct).includes(key)) {
+        changes.push(`${pId}: ['${r(key)}'] = '${value}' removed.`);
+      }
+    }
+
+    return changes;
   }
 }
 

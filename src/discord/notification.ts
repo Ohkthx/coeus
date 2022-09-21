@@ -10,6 +10,12 @@ export const PLACEHOLDER_DATA = JSON.stringify(
   2,
 );
 
+/**
+ * Generates the filter string based on the filter provided.
+ *
+ * @param {SortFilter} filter - Filter to convert.
+ * @returns {string} Filter in string format.
+ */
 export function getFilterString(filter: SortFilter): string {
   const res: string[] = [];
   if (filter.close) res.push('[close > 1]');
@@ -22,32 +28,82 @@ export function getFilterString(filter: SortFilter): string {
 }
 
 /**
+ * Create a header, reducing boilerplate code.
+ */
+function makeHeader(updateId: string, date: Date): string {
+  return (
+    `Update Id: ${updateId}\n` +
+    `+ Updated @Local: ${date}\n` +
+    `+ Updated @ISO-8601: ${date.toISOString()}\n\n`
+  );
+}
+
+/**
  * Create a notification, placing it as a spoiler and in code blocks.
  *
  * @param {string} cbSyntax - Syntax to use for the codeblock.
  * @param {string} data - Data to place inside the spoiler and codeblock.
+ * @param {boolean} inSpoiler - Wrap the data in a spoiler.
  * @returns {string} Newly formed notification wrapped.
  */
-export function createNotification(cbSyntax: string, data: string): string {
-  return spoiler(codeBlock(cbSyntax, data));
+export function createNotification(
+  cbSyntax: string,
+  data: string,
+  inSpoiler: boolean,
+): string {
+  const cb = codeBlock(cbSyntax, data);
+  return inSpoiler ? spoiler(cb) : cb;
 }
 
-export async function sendAnalysis(data: string[], updateId: string) {
+/**
+ * Sends data to the 'changes' channel.
+ *
+ * @param {'Product' | 'Currency'} dataType - Type of data being processed.
+ * @param {string[]} data - Data to be sent to channel.
+ * @param {string} updateId - Id of the current update.
+ */
+export function sendChanges(
+  dataType: 'Product' | 'Currency',
+  data: string[],
+  updateId: string,
+) {
   if (data.length === 0) return;
 
   const date = new Date();
-  data = ['Analysis:'].concat(data);
+  data = [`${dataType} Changes:`].concat(data);
   const newData = data.join('\n+ ');
 
-  const res =
-    `Update Id: ${updateId}\n` +
-    `+ Updated @Local: ${date}\n` +
-    `+ Updated @ISO-8601: ${date.toISOString()}\n\n` +
-    `${newData}`;
+  const res = makeHeader(updateId, date) + `${newData}`;
+
+  return DiscordBot.sendNotification(
+    DISCORD_OPTS.changes.dest,
+    createNotification('markdown', res, false),
+  );
+}
+
+/**
+ * Sends data to the 'analysis' channel.
+ *
+ * @param {'Cross'} dataType - Type of data being processed.
+ * @param {string[]} data - Data to be sent to channel.
+ * @param {string} updateId - Id of the current update.
+ */
+export async function sendAnalysis(
+  dataType: 'Cross',
+  data: string[],
+  updateId: string,
+) {
+  if (data.length === 0) return;
+
+  const date = new Date();
+  data = [`${dataType} Analysis:`].concat(data);
+  const newData = data.join('\n+ ');
+
+  const res = makeHeader(updateId, date) + `${newData}`;
 
   return DiscordBot.sendNotification(
     DISCORD_OPTS.analysis.dest,
-    createNotification('markdown', res),
+    createNotification('markdown', res, false),
   );
 }
 
@@ -76,7 +132,7 @@ export async function sendRankings(
     }
 
     if (update) jsonData = `Update Id: ${update.id}\n${jsonData}`;
-    const notification = createNotification('json', jsonData);
+    const notification = createNotification('json', jsonData, true);
     await DiscordBot.editNotification(
       DISCORD_OPTS.ranking.dest,
       msgId,
@@ -90,7 +146,7 @@ export async function sendRankings(
   const filterString = getFilterString(State.getFilter());
   let updateString = '';
   if (update) {
-    updateString = `+ UpdateId: ${update.id}, time took: ${update.time}s\n`;
+    updateString = `+ Update Id: ${update.id}, time took: ${update.time}s\n`;
   }
 
   // Final message to be sent giving information to the current update as a guide.

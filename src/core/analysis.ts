@@ -56,7 +56,10 @@ function crossToText(
   high: number,
   ma: 'SMA' | 'EMA',
 ): string {
-  return `${pId}: '${ch}' cross ocurred between ${low}-${ma} and ${high}-${ma}.`;
+  return (
+    `${pId}-${low}-${high}-${ma}: '${ch}' cross ocurred between ` +
+    `${low}-${ma} and ${high}-${ma}.`
+  );
 }
 
 /**
