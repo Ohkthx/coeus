@@ -19,7 +19,8 @@ module.exports = {
 
       // Message deleted, need to remove and recreate.
       msgIds.splice(index, 1);
-      const newMsg = createNotification('json', PLACEHOLDER_DATA, true);
+      const jsonData = JSON.stringify(PLACEHOLDER_DATA, null, 2);
+      const newMsg = createNotification('json', jsonData, true);
       const msg = await DiscordBot.sendNotification(
         DISCORD_OPTS.ranking.dest,
         newMsg,

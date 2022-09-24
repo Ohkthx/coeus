@@ -4,28 +4,19 @@ import {SimpleCandle} from '../models';
 import {toFixed} from '../product';
 import {BucketData, createBucketData} from './bucket';
 import {combineCandles, getCandles, loadCandleData} from './candle';
+import {Indicators} from './indicators';
+import {calcMACD} from './indicators/analysis';
+import {ema, getLastMA, MACD, MASet, MAValues, sma} from './indicators/ma';
 import {DataOpts} from './opts';
-import {
-  ema,
-  makeRanking,
-  MASet,
-  ProductRanking,
-  sma,
-  UNSET_MA_SET,
-} from './rank';
-
-function lastN(
-  n: number[],
-  pId: string,
-  mode: 'quote' | 'base',
-): number | undefined {
-  if (n.length === 0) return;
-
-  return toFixed(pId, n[n.length - 1], mode);
-}
+import {makeRanking, ProductRanking, UNSET_MA_SET} from './rank';
 
 const PRODUCT_CANDLES = new Map<string, SimpleCandle[]>();
 const PRODUCT_DATA = new Map<string, ProductData>();
+
+function lastN(n: number[]): number | undefined {
+  if (n.length === 0) return;
+  return n[n.length - 1];
+}
 
 export class ProductData {
   private initialized: boolean = false;
@@ -45,6 +36,9 @@ export class ProductData {
     }
     this.productId = productId;
     this.oldestISO = oldestISO;
+
+    // Required to pass the function and retain 'this'
+    this.formatQuote = this.formatQuote.bind(this);
   }
 
   /**
@@ -119,6 +113,25 @@ export class ProductData {
   }
 
   /**
+   * Generates indicators for the product. These include: smas, emas, macds, etc.
+   */
+  createIndicators(): Indicators {
+    const maSet = this.createMASet();
+    const short = maSet.ema.twelve ?? [];
+    const long = maSet.ema.twentysix ?? [];
+    const macds = this.createMACD(short, long);
+
+    return <Indicators>{
+      sma: getLastMA(maSet.sma),
+      ema: getLastMA(maSet.ema),
+      macd: {
+        value: lastN(macds.value),
+        signal: lastN(macds.signal),
+      },
+    };
+  }
+
+  /**
    * Creates EMA and SMAs based on grouped candles into periods of days.
    *
    * @returns {MASet} EMA and SMAs of the currently existing data.
@@ -137,28 +150,53 @@ export class ProductData {
       },
     );
 
-    const q = 'quote';
-    const pId = this.productId;
     const closes = this.createBuckets(opts).map((d) => d.price.close);
     if (closes.length === 0) return UNSET_MA_SET;
 
     // Get the SMAs
-    const SMA = {
-      twelve: lastN(sma(closes, 12), pId, q),
-      twentysix: lastN(sma(closes, 26), pId, q),
-      fifty: lastN(sma(closes, 50), pId, q),
-      twohundred: lastN(sma(closes, 200), pId, q),
+    const SMA: MAValues = {
+      twelve: sma(closes, 12, this.formatQuote),
+      twentysix: sma(closes, 26, this.formatQuote),
+      fifty: sma(closes, 50, this.formatQuote),
+      twohundred: sma(closes, 200, this.formatQuote),
     };
 
     // Get the EMAs
-    const EMA = {
-      twelve: lastN(ema(closes, 12), pId, q),
-      twentysix: lastN(ema(closes, 26), pId, q),
-      fifty: lastN(ema(closes, 50), pId, q),
-      twohundred: lastN(ema(closes, 200), pId, q),
+    const EMA: MAValues = {
+      twelve: ema(closes, 12, this.formatQuote),
+      twentysix: ema(closes, 26, this.formatQuote),
+      fifty: ema(closes, 50, this.formatQuote),
+      twohundred: ema(closes, 200, this.formatQuote),
     };
 
     return {sma: SMA, ema: EMA};
+  }
+
+  /**
+   * Creates a MACD for the product including the 9-day signal.
+   *
+   * @param {number[]} shortEMA - Short EMA to calculate on.
+   * @param {number[]} longEMA - Long EMA to calculate on.
+   * @returns {MACD} Resulting MACD from the calculation.
+   */
+  private createMACD(shortEMA: number[], longEMA: number[]): MACD {
+    const macds = calcMACD(shortEMA, longEMA, this.formatQuote);
+
+    return <MACD>{
+      value: macds,
+      signal: ema(macds, 9, this.formatQuote),
+    };
+  }
+
+  /**
+   * Formats a number according the the 'quote' precision. Used as a callback to format
+   * in other functions.
+   *
+   * @param {number} value - Number to format.
+   * @returns {number} Newly formatted number.
+   */
+  formatQuote(value: number): number {
+    return toFixed(this.productId, value, 'quote');
   }
 
   /**
@@ -183,7 +221,7 @@ export class ProductData {
     const newRanking = makeRanking(
       this.productId,
       this.createBuckets(opts),
-      this.createMASet(),
+      this.createIndicators(),
       movement,
     );
 

@@ -11,7 +11,7 @@ import {APP_DEBUG} from '..';
 import {ProductData} from './product-data';
 import {DataOpts} from './opts';
 import {sendAnalysis, sendChanges, sendRankings} from '../discord/notification';
-import {crossAnalysis} from './analysis';
+import {crossAnalysis, macdAnalysis} from './indicators/analysis';
 import {DiscordBot} from '../discord/discord-bot';
 import {discordWarn} from '../discord';
 import {EmitEventType, EmitServer} from '../emitter';
@@ -196,14 +196,6 @@ export class State {
       });
   }
 
-  static checkCrosses(productId: string): string[] {
-    const pData = ProductData.find(productId);
-    if (!pData) return [];
-
-    let res = crossAnalysis(pData, 'SMA');
-    return res.concat(crossAnalysis(pData, 'EMA'));
-  }
-
   static setCallbacks() {
     if (!State.initialized) {
       throw new Error('cannot create callbacks till state is initialized.');
@@ -278,6 +270,7 @@ async function initState(opts: DataOpts) {
   coreInfo(`update period of ${opts.candleSizeMin} min currently set.`);
   schedule(cronSchedule, State.updateDataWrapper);
 
+  const updateId = getUniqueId();
   DiscordBot.setActivity(`with updates.`);
 
   // Load all of the products and currencies.
@@ -313,7 +306,6 @@ async function initState(opts: DataOpts) {
   }
 
   // Send the updated rankings to discord.
-  const updateId = getUniqueId();
   sendRankings(
     State.getSortedRankings(),
     products.length,
@@ -323,9 +315,18 @@ async function initState(opts: DataOpts) {
       time: Number((sw.totalMs / 1000 + sw.print()).toFixed(4)),
     },
   );
+  coreDebug(`Bucket and Rank creation execution took ${sw.stop()} seconds.`);
+
+  // Perform analysis.
+  sw.restart();
+  const {cross, macd} = doAnalysis(products);
+
+  if (cross.length > 0) sendAnalysis('Cross', cross, updateId);
+  if (macd.length > 0) sendAnalysis('MACD', macd, updateId);
+  coreDebug(`Indicator analysis took ${sw.stop()} seconds.`);
+
   DiscordBot.setActivity(`with: ${updateId}`);
   State.updateId = updateId;
-  coreDebug(`Bucket and Rank creation execution took ${sw.stop()} seconds.`);
   coreInfo(`timestamp: ${State.timestamp.toISOString()}.`);
   coreDebug(`Startup execution took ${sw.totalMs / 1000} seconds.`);
 }
@@ -336,7 +337,8 @@ async function initState(opts: DataOpts) {
  * @returns {Promise<ProductRanking[]>} Ranked products from new data.
  */
 async function updateData(): Promise<ProductRanking[]> {
-  coreInfo('\nupdating data now!');
+  const updateId = getUniqueId();
+  coreInfo(`\n${updateId}: updating data now!`);
   const opts = State.config;
   DiscordBot.setActivity(`with updates.`);
 
@@ -383,7 +385,6 @@ async function updateData(): Promise<ProductRanking[]> {
   EmitServer.broadcast(emitRanking);
 
   // Send the updated rankings to discord.
-  const updateId = getUniqueId();
   sendRankings(
     State.getSortedRankings(),
     products.length,
@@ -393,37 +394,53 @@ async function updateData(): Promise<ProductRanking[]> {
       time: Number((sw.totalMs / 1000 + sw.print()).toFixed(4)),
     },
   );
-  DiscordBot.setActivity(`with: ${updateId}`);
-  State.updateId = updateId;
   coreDebug(`Bucket and Rank creation execution took ${sw.stop()} seconds.`);
 
-  // Do cross analysis
+  // Perform analysis.
   sw.restart();
-  let crosses: string[] = [];
-  for (let i = 0; i < products.length; i++) {
-    const pId = products[i];
-    printIteration(pId, i, products.length, sw.print());
+  const {cross, macd} = doAnalysis(products);
 
-    const res = State.checkCrosses(pId);
-    if (res.length === 0) continue;
-
-    crosses = crosses.concat(res);
-  }
-
-  if (crosses.length > 0) {
-    sendAnalysis('Cross', crosses, updateId);
-  }
-  coreDebug(`Cross analysis took ${sw.stop()} seconds.`);
+  if (cross.length > 0) sendAnalysis('Cross', cross, updateId);
+  if (macd.length > 0) sendAnalysis('MACD', macd, updateId);
+  coreDebug(`Indicator analysis took ${sw.stop()} seconds.`);
 
   const emitMessage = EmitServer.createMessage(
     EmitEventType.MESSAGE,
     `'${updateId}' completed: ${sw.totalMs / 1000} seconds.`,
   );
   EmitServer.broadcast(emitMessage);
+
+  DiscordBot.setActivity(`with: ${updateId}`);
+  State.updateId = updateId;
   coreDebug(`Total execution took ${sw.totalMs / 1000} seconds.`);
-  coreInfo('update complete.\n');
+  coreInfo(`${updateId}: update complete.\n`);
 
   return State.getSortedRankings();
+}
+
+/**
+ * Gets the analysis results of crosses, and MACDs.
+ *
+ * @param {string[]} products - Products to process.
+ */
+function doAnalysis(products: string[]): {cross: string[]; macd: string[]} {
+  const res: {cross: string[]; macd: string[]} = {cross: [], macd: []};
+
+  for (const pId of products) {
+    const pData = ProductData.find(pId);
+    if (!pData) continue;
+
+    // Get EMA / SMA
+    let ma = crossAnalysis(pData, 'SMA');
+    ma = ma.concat(crossAnalysis(pData, 'EMA'));
+    if (ma.length > 0) res.cross = res.cross.concat(ma);
+
+    // Get MACD
+    let macd = macdAnalysis(pData);
+    if (macd.length > 0) res.macd.concat(macd);
+  }
+
+  return res;
 }
 
 /**

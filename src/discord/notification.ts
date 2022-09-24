@@ -4,11 +4,7 @@ import {ProductRanking, SortFilter} from '../core/rank';
 import {DiscordBot, DISCORD_OPTS} from './discord-bot';
 
 // Placeholder data.
-export const PLACEHOLDER_DATA = JSON.stringify(
-  {placeholder: 'No data.'},
-  null,
-  2,
-);
+export const PLACEHOLDER_DATA = {placeholder: 'No data.'};
 
 /**
  * Generates the filter string based on the filter provided.
@@ -89,7 +85,7 @@ export function sendChanges(
  * @param {string} updateId - Id of the current update.
  */
 export async function sendAnalysis(
-  dataType: 'Cross',
+  dataType: 'Cross' | 'MACD',
   data: string[],
   updateId: string,
 ) {
@@ -126,12 +122,13 @@ export async function sendRankings(
   // Post the top DISCORD_OPTS max rankings to discord.
   for (let i = 0; i < DISCORD_OPTS.ranking.max; i++) {
     const msgId = DiscordBot.messageIds[i];
-    let jsonData = PLACEHOLDER_DATA;
-    if (rankPos < rankings.length) {
-      jsonData = JSON.stringify(rankings[rankPos++], null, 2);
+    let data: Object = PLACEHOLDER_DATA;
+    if (rankPos < rankings.length) data = rankings[rankPos++];
+    if (update) {
+      data = Object.assign({updateId: update.id}, data);
     }
 
-    if (update) jsonData = `Update Id: ${update.id}\n${jsonData}`;
+    let jsonData = JSON.stringify(data, null, 2);
     const notification = createNotification('json', jsonData, true);
     await DiscordBot.editNotification(
       DISCORD_OPTS.ranking.dest,

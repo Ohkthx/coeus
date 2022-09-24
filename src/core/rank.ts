@@ -1,8 +1,9 @@
-import {mean, multiply, sum} from 'mathjs';
+import {multiply, sum} from 'mathjs';
 import {CLOSE_WEIGHT, DIFF_WEIGHT, VOLUME_WEIGHT} from '.';
 import {toFixed} from '../product';
 import {toFixed as quickFix} from '../utils';
 import {BucketData} from './bucket';
+import {getLastMA, Indicators, MASet} from './indicators';
 
 export interface SortFilter {
   count?: number;
@@ -12,23 +13,12 @@ export interface SortFilter {
   volume?: boolean;
 }
 
-export interface MAValues {
-  twelve?: number;
-  twentysix?: number;
-  fifty?: number;
-  twohundred?: number;
-}
-
-export interface MASet {
-  sma: MAValues;
-  ema: MAValues;
-}
-
-export interface ProductRanking extends MASet {
+export interface ProductRanking {
   productId: string;
   ranking: number;
   dataPoints: number;
   movement: number;
+  indicators: Indicators;
   ratio: {
     rating: number;
     close: number;
@@ -77,33 +67,18 @@ export function sortRankings(
 }
 
 /**
- * Removes fields that are error'd out.
- */
-function cleanMA(maValues: MAValues): MAValues {
-  const oldValues: MAValues | any = maValues;
-  const newValues: MAValues | any = {};
-
-  for (const [key, value] of Object.entries(oldValues)) {
-    if (!value) continue;
-    newValues[key] = value;
-  }
-
-  return newValues;
-}
-
-/**
  * Convert Bucket Data into an actual ranking.
  *
  * @param {string} productId - Product/pair to process.
  * @param {BucketData[]} data - Bucket data to process and compile into a ranking.
- * @param {MASet} maSet - EMA/SMA data to add to ranking.
+ * @param {Indicators} indicators - Groups of indicator data to add to ranking..
  * @param {number} movement - Buying/Selling ratio to add to ranking.
  * @returns {ProductRanking | undefined} Ranking of the product, if no errors.
  */
 export function makeRanking(
   productId: string,
   data: BucketData[],
-  maSet: MASet,
+  indicators: Indicators,
   movement: number,
 ): ProductRanking | undefined {
   if (data.length === 0) return;
@@ -134,8 +109,7 @@ export function makeRanking(
       diff: quickFix(diffRatio, 4),
       volume: quickFix(volumeRatio, 4),
     },
-    sma: cleanMA(maSet.sma),
-    ema: cleanMA(maSet.ema),
+    indicators: indicators,
     last: {
       volume: toFixed(productId, last.volume.total),
       volumeAvg: toFixed(productId, last.volume.avg),
@@ -149,56 +123,4 @@ export function makeRanking(
       },
     },
   };
-}
-
-/**
- * 'k' value for calculating EMA.
- *
- * @param {number} mRange - Amount of days to smooth over.
- * @returns {number} Smoothing 'k' value.
- */
-function smooth(mRange: number): number {
-  return 2 / (mRange + 1);
-}
-
-/**
- * Calculates the EMA from provided closes over a range of time.
- *
- * @param {number[]} closes - Closes over each day.
- * @param {number} mRange - Amount of days to smooth over.
- * @returns {number[]} EMA for each data point calculated. Last is most recent.
- */
-export function ema(closes: number[], mRange: number): number[] {
-  if (closes.length < mRange) return [];
-
-  const k = smooth(mRange);
-  const sma = mean(closes.slice(0, mRange));
-  let value = sma;
-
-  const emas: number[] = [sma];
-  for (let i = mRange; i < closes.length; i++) {
-    value = k * closes[i] + (1 - k) * value;
-    emas.push(value);
-  }
-
-  return emas;
-}
-
-/**
- * Calculate the SMA from the provided closes over a range of time.
- *
- * @param {number[]} closes - Closes over each day.
- * @param {number} mRange - Amount of days to calculate the SMA on.
- * @returns {number[]} SMA for each data point calculated. Last is most recent.
- */
-export function sma(closes: number[], mRange: number): number[] {
-  if (closes.length < mRange) return [];
-
-  const smas: number[] = [];
-  for (let i = 0; i < closes.length - mRange + 1; i++) {
-    const value = mean(closes.slice(i, i + mRange));
-    smas.push(value);
-  }
-
-  return smas;
 }

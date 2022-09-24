@@ -312,9 +312,10 @@ export class DiscordBot {
     }
 
     // Recreate the missing messages with placeholder data.
+    const jsonData = JSON.stringify(PLACEHOLDER_DATA, null, 2);
     const missing = DISCORD_OPTS.ranking.max + 1 - msgIds.length;
     for (let i = 0; i < missing; i++) {
-      const newMsg = createNotification('json', PLACEHOLDER_DATA, true);
+      const newMsg = createNotification('json', jsonData, true);
       const msg = await DiscordBot.sendNotification(
         DISCORD_OPTS.ranking.dest,
         newMsg,

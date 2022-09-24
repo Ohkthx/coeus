@@ -1,5 +1,5 @@
-import {ProductData} from './product-data';
-import {MAValues} from './rank';
+import {LastMAValues, MAValues} from './ma';
+import {ProductData} from '../product-data';
 
 enum CrossChange {
   GOLDEN = 'golden',
@@ -95,8 +95,8 @@ function convertCross(
  * @returns {string[]} All crosses that occurred for a product in text format.
  */
 export function crossAnalysis(data: ProductData, ma: 'SMA' | 'EMA'): string[] {
-  const lastR = data.lastRanking;
-  const currentR = data.currentRanking;
+  const lastR = data.lastRanking?.indicators;
+  const currentR = data.currentRanking?.indicators;
   if (!lastR || !currentR) return [];
 
   let xResults: CrossResults = {};
@@ -113,7 +113,7 @@ export function crossAnalysis(data: ProductData, ma: 'SMA' | 'EMA'): string[] {
  * @param {MAValues} c - New (current) moving average values.
  * @returns {CrossResults} All crosses that occurred.
  */
-function checkMA(l: MAValues, c: MAValues): CrossResults {
+function checkMA(l: LastMAValues, c: LastMAValues): CrossResults {
   const res: CrossResults = {};
 
   // 12-26 cross.
@@ -140,4 +140,61 @@ function checkMA(l: MAValues, c: MAValues): CrossResults {
   if (change !== 'none') res.fifty200 = change;
 
   return res;
+}
+
+/**
+ * Calculates an indicator based on MACD (12/26 EMA)
+ *
+ * @param {ProductData} data - Data to pull old and new data from.
+ * @returns {string[]} List of analysis discovered.
+ */
+export function macdAnalysis(data: ProductData): string[] {
+  const last = data.lastRanking?.indicators.macd;
+  const now = data.currentRanking?.indicators.macd;
+  if (!last || !now) return [];
+
+  const res: string[] = [];
+  if (last.value < 0 && now.value > 0) res.push(`crossed the base going up.`);
+  if (last.value > 0 && now.value < 0) res.push(`crossed the base going down.`);
+
+  let lastAbove: boolean = false;
+  let nowAbove: boolean = false;
+  if (last.value > last.signal) lastAbove = true;
+  if (now.value > now.signal) nowAbove = true;
+
+  if (nowAbove && !lastAbove) res.push(`crossed above the signal line.`);
+  if (!nowAbove && lastAbove) res.push(`crossed below the signal line.`);
+
+  for (let i = 0; i < res.length; i++) {
+    res[i] = `${data.productId}-MACD: ${res[i]}`;
+  }
+
+  return res;
+}
+
+/**
+ * Calculates the MACD from a short EMA dna a long EMA.
+ *
+ * @param {number[]} short - List of closes for the shorter EMA.
+ * @param {number[]} long - Lost of closes for the longer EMA.
+ * @param {Function} format - Optional: Formats the results.
+ * @returns {number[]} Difference between the short and long.
+ */
+export function calcMACD(
+  short: number[],
+  long: number[],
+  format?: (value: number) => number,
+): number[] {
+  const length = short.length < long.length ? short.length : long.length;
+
+  const macds: number[] = [];
+  for (let i = length - 1; i >= 0; i--) {
+    if (!short[i] || !long[i]) break;
+
+    let macd = short[i] - long[i];
+    if (format) macd = format(macd);
+    macds.push(macd);
+  }
+
+  return macds.reverse();
 }
