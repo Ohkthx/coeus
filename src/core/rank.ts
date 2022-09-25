@@ -88,9 +88,17 @@ export function makeRanking(
 
   // Calculate the ratios from last candles data.
   const closeRatio = last.lastCandle.close / last.price.closeAvg;
-  const volumeRatio = last.lastCandle.volume / last.volume.avg;
-  const diffRatio =
-    (last.lastCandle.high - last.lastCandle.low) / last.price.diffAvg;
+
+  let volumeRatio: number = 0;
+  if (last.volume.avg !== 0) {
+    volumeRatio = last.lastCandle.volume / last.volume.avg;
+  }
+
+  let diffRatio: number = 0;
+  if (last.price.diffAvg !== 0) {
+    diffRatio =
+      (last.lastCandle.high - last.lastCandle.low) / last.price.diffAvg;
+  }
 
   // Factor in the weights to create a rating.
   const rating: number =

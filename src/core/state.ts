@@ -327,8 +327,8 @@ async function initState(opts: DataOpts) {
 
   DiscordBot.setActivity(`with: ${updateId}`);
   State.updateId = updateId;
-  coreInfo(`timestamp: ${State.timestamp.toISOString()}.`);
   coreDebug(`Startup execution took ${sw.totalMs / 1000} seconds.`);
+  coreInfo(`timestamp: ${State.timestamp.toISOString()}.`);
 }
 
 /**
@@ -398,10 +398,10 @@ async function updateData(): Promise<ProductRanking[]> {
 
   // Perform analysis.
   sw.restart();
-  const {cross, macd} = doAnalysis(products);
+  const analysis = doAnalysis(products);
 
-  if (cross.length > 0) sendAnalysis('Cross', cross, updateId);
-  if (macd.length > 0) sendAnalysis('MACD', macd, updateId);
+  const res = formatAnalysis(analysis);
+  if (res.length > 0) sendAnalysis('ALL', res, updateId);
   coreDebug(`Indicator analysis took ${sw.stop()} seconds.`);
 
   const emitMessage = EmitServer.createMessage(
@@ -437,7 +437,26 @@ function doAnalysis(products: string[]): {cross: string[]; macd: string[]} {
 
     // Get MACD
     let macd = macdAnalysis(pData);
-    if (macd.length > 0) res.macd.concat(macd);
+    if (macd.length > 0) res.macd = res.macd.concat(macd);
+  }
+
+  return res;
+}
+
+/**
+ * Combines all of the analysis into a single list.
+ */
+function formatAnalysis(data: {cross: string[]; macd: string[]}): string[] {
+  let res: string[] = [];
+  if (data.cross.length > 0) {
+    res.push('Cross Analysis:');
+    res = res.concat(data.cross.map((d) => `+ ${d}`));
+  }
+
+  if (res.length > 0) res.push('');
+  if (data.macd.length > 0) {
+    res.push('MACD Analysis:');
+    res = res.concat(data.macd.map((d) => `+ ${d}`));
   }
 
   return res;

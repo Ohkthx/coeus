@@ -46,6 +46,24 @@ export interface BucketData {
 }
 
 /**
+ * Finds a previous bucket that has cancles, starting from the position supplied.
+ *
+ * @param {CandleBucket[]} values - Values to iterate to find.
+ * @param {number} pos - Position to start from to works towards 0.
+ * @returns {CandleBucket | undefined} If found, prior candle bucket.
+ */
+function findPrev(
+  values: CandleBucket[],
+  pos: number,
+): CandleBucket | undefined {
+  for (let i = pos; i >= 0; --i) {
+    if (values[i].candles.length > 0) return values[i];
+  }
+
+  return undefined;
+}
+
+/**
  * Bundles candles into buckets, which are just groups of candles.
  *
  * @param {SimpleCandle[]} candles - Candles to split and group.
@@ -191,10 +209,20 @@ export function newBucketData(timestamp: string): BucketData {
 function candleProcessor(candleBuckets: CandleBucket[]): BucketData[] {
   const buckets: BucketData[] = [];
   for (let i = 0; i < candleBuckets.length; i++) {
-    const {timestampISO, candles} = candleBuckets[i];
+    let {timestampISO, candles} = candleBuckets[i];
 
-    // Ignore empty buckets.
-    if (candles.length === 0) continue;
+    // Backfill empty bucket.
+    let missingData: boolean = false;
+    if (candles.length === 0) {
+      missingData = true;
+      const prevBucket = findPrev(candleBuckets, i);
+      if (prevBucket && prevBucket.candles.length > 0) {
+        candles = prevBucket.candles;
+      } else {
+        // Could not backfill, ignore and continue;
+        continue;
+      }
+    }
 
     let data: BucketData = newBucketData(timestampISO);
 
@@ -211,22 +239,29 @@ function candleProcessor(candleBuckets: CandleBucket[]): BucketData[] {
     }
 
     // Amount of data (candles) that made the data.
-    data.dataPoints = candles.length;
+    data.dataPoints = missingData ? 1 : candles.length;
 
     // Computes avg for whole bucket and store last candle data.
-    data.price.diffAvg = totalDiff / data.dataPoints;
-    data.price.closeAvg = totalClose / data.dataPoints;
-    data.price.close = candles[0].close;
-    data.volume.avg = totalVolume / data.dataPoints;
-    data.volume.total = totalVolume;
-    data.lastCandle.close = candles[0].close;
-    data.lastCandle.low = candles[0].low;
-    data.lastCandle.high = candles[0].high;
-    data.lastCandle.volume = candles[0].volume;
+    //   if data was missing, fill it in with 0s.
+    const c0 = candles[0];
+    data.price.diffAvg = missingData ? 0 : totalDiff / candles.length;
+    data.price.closeAvg = missingData ? c0.close : totalClose / candles.length;
+    data.price.close = c0.close;
+    data.volume.avg = missingData ? 0 : totalVolume / candles.length;
+    data.volume.total = missingData ? 0 : totalVolume;
+    data.lastCandle.close = c0.close;
+    data.lastCandle.low = missingData ? c0.close : c0.low;
+    data.lastCandle.high = missingData ? c0.close : c0.high;
+    data.lastCandle.volume = missingData ? 0 : c0.volume;
 
     // Compute the coefficient of variances.
-    data.price.cv = std(...candles.map((c) => c.close)) / data.price.closeAvg;
-    data.volume.cv = std(...candles.map((c) => c.volume)) / data.volume.avg;
+    if (missingData) {
+      data.price.cv = 0;
+      data.volume.cv = 0;
+    } else {
+      data.price.cv = std(...candles.map((c) => c.close)) / data.price.closeAvg;
+      data.volume.cv = std(...candles.map((c) => c.volume)) / data.volume.avg;
+    }
 
     buckets.push(data);
   }

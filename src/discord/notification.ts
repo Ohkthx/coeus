@@ -27,8 +27,11 @@ export function getFilterString(filter: SortFilter): string {
  * Create a header, reducing boilerplate code.
  */
 function makeHeader(updateId: string, date: Date): string {
+  const updateString = `Update Id: ${updateId}`;
+  const line = '-'.repeat(updateString.length);
+
   return (
-    `Update Id: ${updateId}\n` +
+    `${updateString}\n${line}\n` +
     `+ Updated @Local: ${date}\n` +
     `+ Updated @ISO-8601: ${date.toISOString()}\n\n`
   );
@@ -85,15 +88,16 @@ export function sendChanges(
  * @param {string} updateId - Id of the current update.
  */
 export async function sendAnalysis(
-  dataType: 'Cross' | 'MACD',
+  dataType: 'Cross' | 'MACD' | 'ALL',
   data: string[],
   updateId: string,
 ) {
   if (data.length === 0) return;
 
   const date = new Date();
-  data = [`${dataType} Analysis:`].concat(data);
-  const newData = data.join('\n+ ');
+  if (dataType !== 'ALL') data = [`${dataType} Analysis:`].concat(data);
+
+  const newData = data.join('\n');
 
   const res = makeHeader(updateId, date) + `${newData}`;
 
@@ -143,15 +147,17 @@ export async function sendRankings(
   const filterString = getFilterString(State.getFilter());
   let updateString = '';
   if (update) {
-    updateString = `+ Update Id: ${update.id}, time took: ${update.time}s\n`;
+    updateString = `Update Id: ${update.id}, time took: ${update.time}s`;
+    const line = '-'.repeat(updateString.length);
+    updateString = `${updateString}\n${line}\n`;
   }
 
   // Final message to be sent giving information to the current update as a guide.
   const updateText = codeBlock(
     'markdown',
-    `Processed ${total} products and ${dpString} candles, filtered ${filtered} rankings.\n` +
+    `${updateString}` +
+      `+ Processed ${total} products and ${dpString} candles, filtered ${filtered} rankings.\n` +
       `${filterString}` +
-      `${updateString}` +
       `+ Updated @Local: ${date}\n` +
       `+ Updated @ISO-8601: ${date.toISOString()}\n` +
       `\nNotes:\n` +
