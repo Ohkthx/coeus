@@ -17,7 +17,7 @@ import {
 import {DataOpts} from './opts';
 import {makeRanking, ProductRanking, UNSET_MA_SET} from './rank';
 
-const PRODUCT_CANDLES = new Map<string, SimpleCandle[]>();
+const PRODUCT_BUCKETS = new Map<string, BucketData[]>();
 const PRODUCT_DATA = new Map<string, ProductData>();
 
 function lastN(n: number[]): number | undefined {
@@ -25,12 +25,22 @@ function lastN(n: number[]): number | undefined {
   return n[n.length - 1];
 }
 
+export interface ProductUpdate {
+  data: ProductRanking | undefined;
+  ts: {
+    candles: number;
+    buckets: number;
+    indicators: number;
+    ranks: number;
+  };
+}
+
 export class ProductData {
-  private initialized: boolean = false;
   private oldestISO: string = '';
   lastRanking: ProductRanking | undefined;
   currentRanking: ProductRanking | undefined;
   productId: string = '';
+  lastTimestamp: Date = new Date(this.oldestISO);
 
   constructor(
     productId: string,
@@ -51,23 +61,22 @@ export class ProductData {
   /**
    * Get the last timestamp of the candle, otherwise default to oldest possible.
    *
-   * @returns {Date} Date of the most recent timestamp.
+   * @param {SimpleCandle[]} candles - Candles to analyze for latest timestamp.
    */
-  get lastTimestamp(): Date {
-    const candles = this.getCandles();
+  private setLastTimestamp(candles: SimpleCandle[]) {
     if (candles.length === 0) return new Date(this.oldestISO);
-    return new Date(candles[candles.length - 1].openTimeInISO);
+    this.lastTimestamp = new Date(candles[candles.length - 1].openTimeInISO);
   }
 
   /**
-   * Get the last close of the candle, otherwise -1.
+   * Get the last close of the last bucket, otherwise -1.
    *
    * @returns {number} Value of the last close.
    */
   get lastClose(): number {
-    const candles = this.getCandles();
-    if (candles.length === 0) return -1;
-    return candles[candles.length - 1].close;
+    const buckets = this.getBuckets();
+    if (buckets.length === 0) return -1;
+    return buckets[buckets.length - 1].lastCandle.close;
   }
 
   /**
@@ -80,41 +89,59 @@ export class ProductData {
   }
 
   /**
-   * Get the currently stored candles.
+   * Get the currently stored buckets.
    *
-   * @returns {SimpleCandle[]} Candles belonging to the product.
+   * @returns {BucketData[]} Bucket data belonging to the product.
    */
-  getCandles(): SimpleCandle[] {
-    return PRODUCT_CANDLES.get(this.productId) ?? [];
+  getBuckets(): BucketData[] {
+    return PRODUCT_BUCKETS.get(this.productId) ?? [];
   }
 
   /**
-   * Overrides the currently saved candles with the new candles.
+   * Overrides the currently saved buckets with the new buckets.
    *
-   * @param {SimpleCandle[]} candles - Candles to save.
+   * @param {BucketData[]} buckets - Bucket data to save.
    */
-  private setCandles(candles: SimpleCandle[]) {
-    PRODUCT_CANDLES.set(this.productId, candles);
+  private setBuckets(buckets: BucketData[]) {
+    PRODUCT_BUCKETS.set(this.productId, buckets);
   }
 
   /**
-   * Updeates the candles, pulling new information from remote sources. Combines them
+   * Generates the data options for currently creating candles and buckets.
+   */
+  private createDataOpts(): DataOpts {
+    return new DataOpts(
+      this.lastTimestamp,
+      {
+        granularity: CANDLE_GRANULARITY,
+        pullNew: false,
+      },
+      {
+        candlesPer: ONE_DAY_TO_S / CANDLE_GRANULARITY,
+        total: MAX_DAYS_OF_DATA,
+      },
+    );
+  }
+
+  /**
+   * Updates the candles, pulling new information from remote sources. Combines them
    * with existing data.
    *
    * @param {DataOpts} opts - Options that modify what data is pulled from remote sources.
    */
-  async updateCandles(opts: DataOpts) {
+  private async updateCandles(
+    oldCandles: SimpleCandle[],
+    opts: DataOpts,
+  ): Promise<SimpleCandle[]> {
     const candles = await getCandles(this.productId, opts, this.lastTimestamp);
-    if (candles.length === 0) return;
+    if (candles.length === 0) return oldCandles;
 
-    // Combine the new data into the old data and save it locally.
-    this.setCandles(
-      combineCandles(
-        this.getCandles(),
-        candles,
-        opts.start.toISOString(),
-        opts.totalCandleCount,
-      ),
+    // Combine the new data into the old data.
+    return combineCandles(
+      oldCandles,
+      candles,
+      opts.start.toISOString(),
+      opts.totalCandleCount,
     );
   }
 
@@ -125,9 +152,9 @@ export class ProductData {
    * @param {DataOpts} opts - Options that modify how the buckets are created.
    * @returns {BucketData[]} Newly created grouped candle data.
    */
-  createBuckets(opts: DataOpts): BucketData[] {
-    if (this.getCandles().length === 0) return [];
-    return createBucketData(this.getCandles(), opts);
+  private createBuckets(candles: SimpleCandle[], opts: DataOpts): BucketData[] {
+    if (candles.length === 0) return [];
+    return createBucketData(candles, opts);
   }
 
   /**
@@ -208,55 +235,80 @@ export class ProductData {
   }
 
   /**
-   * Update rankings based on the current candle data.
+   * Update the Product, pulling new candles, creating new buckets, generating the
+   * movement, and lastly updating the rank.
    *
-   * @param {number} movement - Current buying/selling ratio, defaults to -1.
-   * @returns {ProductRanking | undefined} Newly calculated ranking if no errors.
+   * @param {{ts: Date; pullNew: boolean} opts - Optional, used to override for updates.
+   * @returns {Promise<ProductUpdate>} Contains the new rank and statistical time data.
    */
-  updateRanking(movement: number = -1): ProductRanking | undefined {
-    const opts = new DataOpts(
-      this.lastTimestamp,
-      {
-        granularity: CANDLE_GRANULARITY,
-        pullNew: false,
-      },
-      {
-        candlesPer: ONE_DAY_TO_S / CANDLE_GRANULARITY,
-        total: MAX_DAYS_OF_DATA,
-      },
-    );
+  async update(opts?: {ts: Date; pullNew: boolean}): Promise<ProductUpdate> {
+    let {candles} = await loadCandleData(this.productId);
 
-    const dayBuckets: BucketData[] = this.createBuckets(opts);
-    const closes: number[] = dayBuckets.map((d) => d.price.close);
+    // Update the timestamp because we may have gotten new candles.
+    //   Get updated data pulling options.
+    this.setLastTimestamp(candles);
+    let dataOpts = this.createDataOpts();
+
+    if (opts) {
+      dataOpts.setEnd(opts.ts);
+      dataOpts.setPullNew(opts.pullNew);
+      // This is a true update, get new candle data.
+      candles = await this.updateCandles(candles, dataOpts);
+
+      // Reassign because newer data may have been acquired.
+      this.setLastTimestamp(candles);
+      dataOpts = this.createDataOpts();
+    }
+
+    // Generate the buckets from new candles.
+    const buckets = this.createBuckets(candles, dataOpts);
+    this.setBuckets(buckets);
+
+    // Create the closes from buckets, used for indicators.
+    const closes = buckets.map((b) => b.price.close);
     let change: number = 0;
     if (closes.length > 1) {
       const ratio = closes[closes.length - 1] / closes[closes.length - 2];
       change = (ratio - 1) * 100;
     }
 
+    // Generate the new movement.
+    let movement: number = -1;
+    if (opts) movement = await this.getMovement();
+
+    // Create the indicators
+    const indicators = this.createIndicators(closes);
+
+    // Create the new ranking and update if created.
     const newRanking = makeRanking(
       this.productId,
-      dayBuckets,
+      buckets,
       change,
-      this.createIndicators(closes),
+      indicators,
       movement,
     );
-
-    // Update the rankings if a new one was created.
     if (newRanking) {
       this.lastRanking = this.currentRanking;
       this.currentRanking = newRanking;
     }
 
-    return newRanking;
+    return {
+      data: newRanking,
+      ts: {
+        candles: 0,
+        buckets: 0,
+        indicators: 0,
+        ranks: 0,
+      },
+    };
   }
 
   /**
    * Gets the buying/selling orders from a remote source, calculates the ratio.
    *
-   * @returns {Promise<number<} Ratio of buying/selling indicating direction.
+   * @returns {Promise<number>} Ratio of buying/selling indicating direction.
    */
-  async getMovement(): Promise<number> {
+  private async getMovement(): Promise<number> {
     return AnonymousClient.getOrderCount(this.productId)
       .then((data) => {
         const {buys, sells} = data;
@@ -267,16 +319,6 @@ export class ProductData {
         coreErr(err);
         return -1;
       });
-  }
-
-  /**
-   * Loads candles from a database and saves it locally to be used.
-   */
-  private async loadCandles() {
-    if (this.initialized) return;
-    const {candles} = await loadCandleData(this.productId);
-    PRODUCT_CANDLES.set(this.productId, candles);
-    this.initialized = true;
   }
 
   /**
@@ -314,7 +356,6 @@ export class ProductData {
 
     // Create it if it does not exist.
     const newData = new ProductData(productId, oldestISO, true);
-    await newData.loadCandles();
 
     ProductData.save(newData);
     return newData;

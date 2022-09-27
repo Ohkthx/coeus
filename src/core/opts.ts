@@ -95,4 +95,12 @@ export class DataOpts {
   get start(): Date {
     return this.span.start;
   }
+
+  setPullNew(value: boolean) {
+    this.cOpts.pullNew = value;
+  }
+
+  setEnd(date: Date) {
+    this.end = date;
+  }
 }

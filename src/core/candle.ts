@@ -5,6 +5,8 @@ import {AnonymousClient} from '../exchange-api/coinbase';
 import {CandleData, CandleDataModel, SimpleCandle} from '../models/candle';
 import {DataOpts} from './opts';
 
+const CANDLE_STATUS = new Map<string, boolean>();
+
 /**
  * Obtains candles from a local database, then pull any new candles that are
  * not present from a remote API.
@@ -87,6 +89,14 @@ export function combineCandles(
   return oldCandles;
 }
 
+export function isSavingCandles(): boolean {
+  for (const [key, value] of CANDLE_STATUS.entries()) {
+    if (value) return true;
+  }
+
+  return false;
+}
+
 /**
  * Appends candle data to database, creating product if it does not exist.
  *
@@ -99,11 +109,13 @@ export async function saveCandles(
   data: SimpleCandle[],
   maxCount: number,
 ) {
+  CANDLE_STATUS.set(productId, true);
   await CandleDataModel.updateOne(
     {productId: productId, useSandbox: USE_SANDBOX},
     {$push: {candles: {$each: data, $slice: -maxCount}}},
     {upsert: true},
   );
+  CANDLE_STATUS.set(productId, false);
 }
 
 /**

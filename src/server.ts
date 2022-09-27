@@ -1,5 +1,6 @@
 import {
   CANDLE_GRANULARITY,
+  isSavingCandles,
   MAX_DAYS_OF_DATA,
   ONE_DAY_TO_S,
   State,
@@ -49,6 +50,13 @@ async function killAll() {
     while (State.isUpdating) await delay(250);
   }
   appInfo('[core] disabled.');
+
+  // Wait for candles to be done saving.
+  if (isSavingCandles()) {
+    appInfo('[candles] currently saving candles... waiting.');
+    while (isSavingCandles()) await delay(250);
+    appInfo('[candles] saved.');
+  }
 
   // Kill the HTTP server.
   HTTPServer.stop();

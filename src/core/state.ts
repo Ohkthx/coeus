@@ -169,9 +169,9 @@ export class State {
   }
 
   /**
-   * Overrides the current rankings with the ones provided.
+   * Overrides the current ranking with the one provided.
    *
-   * @param {ProductRanking[]} rankings - Rankings to override with.
+   * @param {ProductRanking} ranking - Ranking to override with.
    */
   static setRanking(ranking: ProductRanking) {
     State.currentRankings.set(ranking.productId, ranking);
@@ -306,24 +306,14 @@ async function initState(opts: DataOpts) {
     printIteration(pId, i, products.length, sw.print());
 
     const pData = await ProductData.initialize(pId, opts.start.toISOString());
-    if (pData.getCandles().length > 0) loaded++;
+    const update = await pData.update();
+    if (update.data) {
+      State.setRanking(update.data);
+      loaded++;
+    }
   }
 
-  coreDebug(`loaded ${loaded} product data, took ${sw.stop()} seconds.`);
-
-  // Get the bucket data from the candles.
-  sw.restart();
-  for (let i = 0; i < products.length; i++) {
-    const pId = products[i];
-    printIteration(pId, i, products.length, sw.print());
-
-    const pData = ProductData.find(pId);
-    if (!pData) continue;
-
-    // Not passing movement to updateRAnking() due to this being old data.
-    const ranking = pData.updateRanking();
-    if (ranking) State.setRanking(ranking);
-  }
+  coreDebug(`loaded ${loaded} product data.`);
 
   // Send the updated rankings to discord.
   sendRankings(
@@ -332,14 +322,13 @@ async function initState(opts: DataOpts) {
     State.getDataPoints(),
     {
       id: updateId,
-      time: Number((sw.totalMs / 1000 + sw.print()).toFixed(4)),
+      time: Number((sw.totalMs / 1000).toFixed(4)),
     },
   );
-  coreDebug(`Bucket and Rank creation execution took ${sw.stop()} seconds.`);
 
   DiscordBot.setActivity(`with: ${updateId}`);
   State.updateId = updateId;
-  coreDebug(`Startup execution took ${sw.totalMs / 1000} seconds.`);
+  coreDebug(`Startup execution took ${sw.stop()} seconds.`);
   coreInfo(`timestamp: ${State.timestamp.toISOString()}.`);
 }
 
@@ -371,23 +360,12 @@ async function updateData(): Promise<ProductRanking[]> {
     if (!pData) continue;
 
     printIteration(pId, i, products.length, sw.print());
-    await pData.updateCandles(opts);
+    const update = await pData.update({ts: opts.end, pullNew: true});
+    if (update.data) {
+      State.setRanking(update.data);
+    }
   }
-  coreDebug(`Candle polling execution took ${sw.stop()} seconds.`);
-
-  // Get the bucket data from the candles.
-  sw.restart();
-  for (let i = 0; i < products.length; i++) {
-    const pId = products[i];
-    printIteration(pId, i, products.length, sw.print());
-
-    const pData = ProductData.find(pId);
-    if (!pData) continue;
-
-    const movement = await pData.getMovement();
-    const ranking = pData.updateRanking(movement);
-    if (ranking) State.setRanking(ranking);
-  }
+  coreDebug(`Update execution took ${sw.stop()} seconds.`);
 
   // Send the updated rankings to the websocket.
   const emitRanking = EmitServer.createMessage(
@@ -403,10 +381,9 @@ async function updateData(): Promise<ProductRanking[]> {
     State.getDataPoints(),
     {
       id: updateId,
-      time: Number((sw.totalMs / 1000 + sw.print()).toFixed(4)),
+      time: Number((sw.totalMs / 1000).toFixed(4)),
     },
   );
-  coreDebug(`Bucket and Rank creation execution took ${sw.stop()} seconds.`);
 
   // Perform analysis.
   sw.restart();

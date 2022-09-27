@@ -19,6 +19,7 @@ export class Stopwatch {
    * @returns {number} Amount of seconds that has passed.
    */
   stop(): number {
+    if (this.stopped) return this.lastMS / 1000;
     this.stopped = true;
 
     const accumulated = Date.now() - this.startMs;
