@@ -5,8 +5,15 @@ import {toFixed} from '../product';
 import {BucketData, createBucketData} from './bucket';
 import {combineCandles, getCandles, loadCandleData} from './candle';
 import {Indicators} from './indicators';
-import {calcMACD} from './indicators/analysis';
-import {ema, getLastMA, MACD, MASet, MAValues, sma} from './indicators/ma';
+import {calcMACD, calcRSI} from './indicators';
+import {
+  calcEMA,
+  getLastMA,
+  MACD,
+  MASet,
+  MAValues,
+  calcSMA,
+} from './indicators/ma';
 import {DataOpts} from './opts';
 import {makeRanking, ProductRanking, UNSET_MA_SET} from './rank';
 
@@ -50,6 +57,17 @@ export class ProductData {
     const candles = this.getCandles();
     if (candles.length === 0) return new Date(this.oldestISO);
     return new Date(candles[candles.length - 1].openTimeInISO);
+  }
+
+  /**
+   * Get the last close of the candle, otherwise -1.
+   *
+   * @returns {number} Value of the last close.
+   */
+  get lastClose(): number {
+    const candles = this.getCandles();
+    if (candles.length === 0) return -1;
+    return candles[candles.length - 1].close;
   }
 
   /**
@@ -114,20 +132,24 @@ export class ProductData {
 
   /**
    * Generates indicators for the product. These include: smas, emas, macds, etc.
+   *
+   * @param {number[]} closes - List of closes from oldest to newest.
    */
-  createIndicators(): Indicators {
-    const maSet = this.createMASet();
+  private createIndicators(closes: number[]): Indicators {
+    const maSet = this.createMASet(closes);
     const short = maSet.ema.twelve ?? [];
     const long = maSet.ema.twentysix ?? [];
     const macds = this.createMACD(short, long);
+    const rsi = calcRSI(closes);
 
     return <Indicators>{
-      sma: getLastMA(maSet.sma),
-      ema: getLastMA(maSet.ema),
+      rsi: lastN(rsi),
       macd: {
         value: lastN(macds.value),
         signal: lastN(macds.signal),
       },
+      sma: getLastMA(maSet.sma),
+      ema: getLastMA(maSet.ema),
     };
   }
 
@@ -136,40 +158,26 @@ export class ProductData {
    *
    * @returns {MASet} EMA and SMAs of the currently existing data.
    */
-  private createMASet(): MASet {
-    // Generate the new MAs.
-    const opts = new DataOpts(
-      this.lastTimestamp,
-      {
-        granularity: CANDLE_GRANULARITY,
-        pullNew: false,
-      },
-      {
-        candlesPer: ONE_DAY_TO_S / CANDLE_GRANULARITY,
-        total: MAX_DAYS_OF_DATA,
-      },
-    );
-
-    const closes = this.createBuckets(opts).map((d) => d.price.close);
+  private createMASet(closes: number[]): MASet {
     if (closes.length === 0) return UNSET_MA_SET;
 
     // Get the SMAs
-    const SMA: MAValues = {
-      twelve: sma(closes, 12, this.formatQuote),
-      twentysix: sma(closes, 26, this.formatQuote),
-      fifty: sma(closes, 50, this.formatQuote),
-      twohundred: sma(closes, 200, this.formatQuote),
+    const sma: MAValues = {
+      twelve: calcSMA(closes, 12, this.formatQuote),
+      twentysix: calcSMA(closes, 26, this.formatQuote),
+      fifty: calcSMA(closes, 50, this.formatQuote),
+      twohundred: calcSMA(closes, 200, this.formatQuote),
     };
 
     // Get the EMAs
-    const EMA: MAValues = {
-      twelve: ema(closes, 12, this.formatQuote),
-      twentysix: ema(closes, 26, this.formatQuote),
-      fifty: ema(closes, 50, this.formatQuote),
-      twohundred: ema(closes, 200, this.formatQuote),
+    const ema: MAValues = {
+      twelve: calcEMA(closes, 12, this.formatQuote),
+      twentysix: calcEMA(closes, 26, this.formatQuote),
+      fifty: calcEMA(closes, 50, this.formatQuote),
+      twohundred: calcEMA(closes, 200, this.formatQuote),
     };
 
-    return {sma: SMA, ema: EMA};
+    return {sma: sma, ema: ema};
   }
 
   /**
@@ -184,7 +192,7 @@ export class ProductData {
 
     return <MACD>{
       value: macds,
-      signal: ema(macds, 9, this.formatQuote),
+      signal: calcEMA(macds, 9, this.formatQuote),
     };
   }
 
@@ -218,10 +226,19 @@ export class ProductData {
       },
     );
 
+    const dayBuckets: BucketData[] = this.createBuckets(opts);
+    const closes: number[] = dayBuckets.map((d) => d.price.close);
+    let change: number = 0;
+    if (closes.length > 1) {
+      const ratio = closes[closes.length - 1] / closes[closes.length - 2];
+      change = (ratio - 1) * 100;
+    }
+
     const newRanking = makeRanking(
       this.productId,
-      this.createBuckets(opts),
-      this.createIndicators(),
+      dayBuckets,
+      change,
+      this.createIndicators(closes),
       movement,
     );
 

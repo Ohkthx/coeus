@@ -74,22 +74,25 @@ function smooth(mRange: number): number {
  * @param {Function} format - Optional: Function to use to format the data.
  * @returns {number[]} EMA for each data point calculated. Last is most recent.
  */
-export function ema(
+export function calcEMA(
   closes: number[],
   mRange: number,
   format?: (value: number) => number,
 ): number[] {
-  if (closes.length < mRange) return [];
-
+  if (closes.length <= mRange) return [];
   const k = smooth(mRange);
-  const sma = mean(closes.slice(0, mRange));
-  let value = sma;
 
-  const emas: number[] = [sma];
+  const preCloses: number[] = closes.slice(0, mRange);
+  let lastMA: number = mean(preCloses);
+
+  if (format) lastMA = format(lastMA);
+  const emas: number[] = [lastMA];
+
   for (let i = mRange; i < closes.length; i++) {
-    value = k * closes[i] + (1 - k) * value;
-    if (format) value = format(value);
-    emas.push(value);
+    let newEMA = closes[i] * k + lastMA * (1 - k);
+    if (format) newEMA = format(newEMA);
+    emas.push(newEMA);
+    lastMA = newEMA;
   }
 
   return emas;
@@ -103,7 +106,7 @@ export function ema(
  * @param {Function} format - Optional: Function to use to format the data.
  * @returns {number[]} SMA for each data point calculated. Last is most recent.
  */
-export function sma(
+export function calcSMA(
   closes: number[],
   mRange: number,
   format?: (value: number) => number,

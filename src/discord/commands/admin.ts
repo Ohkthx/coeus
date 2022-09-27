@@ -37,6 +37,18 @@ module.exports = {
             .setName('diff')
             .setDescription('Sort on diff ratio > 1.')
             .setRequired(false),
+        )
+        .addBooleanOption((option) =>
+          option
+            .setName('overbought')
+            .setDescription('Sort on RSI considered overbought.')
+            .setRequired(false),
+        )
+        .addBooleanOption((option) =>
+          option
+            .setName('oversold')
+            .setDescription('Sort on RSI considered oversold.')
+            .setRequired(false),
         ),
     ),
 
@@ -83,6 +95,8 @@ async function filter(interaction: CommandInteraction) {
     close: opts.getBoolean('close', false) ?? undefined,
     diff: opts.getBoolean('diff', false) ?? undefined,
     volume: opts.getBoolean('volume', false) ?? undefined,
+    overbought: opts.getBoolean('overbought', false) ?? undefined,
+    oversold: opts.getBoolean('oversold', false) ?? undefined,
   };
 
   newFilter = State.updateFilter(newFilter);

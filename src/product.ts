@@ -2,10 +2,11 @@ import {Product as IProduct} from 'coinbase-pro-node';
 import {abs, log10} from 'mathjs';
 import {USE_SANDBOX} from '.';
 import {Product, ProductModel} from './models';
-import {getHash} from './utils';
+import {getHash, parseBoolean} from './utils';
 
 let initialized: boolean = false;
 const PRODUCTS = new Map<string, Product>();
+const STABLE_IDENTIFIER: string = 'fx_stablecoin';
 
 export interface ProductUpdate {
   updated: Product[];
@@ -148,11 +149,7 @@ export class Products {
       }
 
       // Include stablepairs?
-      const stable = 'fx_stablecoin';
-      const p = JSON.parse(JSON.stringify(product));
-      if (!stablepairs && stable in p && p[stable] === true) {
-        continue;
-      }
+      if (!stablepairs && product.stable_pair) continue;
 
       // Only add products that are on the inclusion list (if applicable)
       if (include.length !== 0) {
@@ -184,6 +181,7 @@ export class Products {
     return <Product>{
       id: product.id,
       useSandbox: product.useSandbox,
+      stable_pair: product.stable_pair,
       quote_currency: product.quote_currency,
       base_min_size: product.base_min_size,
       base_max_size: product.base_max_size,
@@ -210,9 +208,17 @@ export class Products {
    * @returns {Product} Converted product.
    */
   static convert(apiProduct: IProduct, sandbox: boolean): Product {
+    let isStable: boolean = false;
+    for (const [key, value] of Object.entries(apiProduct)) {
+      if (key !== STABLE_IDENTIFIER) continue;
+      isStable = parseBoolean(value);
+      break;
+    }
+
     return <Product>{
       id: apiProduct.id,
       useSandbox: sandbox,
+      stable_pair: isStable,
       quote_currency: apiProduct.quote_currency,
       base_min_size: apiProduct.base_min_size,
       base_max_size: apiProduct.base_max_size,

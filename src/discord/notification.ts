@@ -18,9 +18,11 @@ export function getFilterString(filter: SortFilter): string {
   if (filter.diff) res.push('[diff > 1]');
   if (filter.volume) res.push('[volume > 1]');
   if (filter.movement) res.push('[movement > 1]');
+  if (filter.overbought) res.push(`[overbought]`);
+  if (filter.oversold) res.push(`[oversold]`);
 
-  if (res.length === 0) return '';
-  return `Filtered Results! Only showing: ${res.join(' ')}\n`;
+  if (res.length === 0) return '+ Filtered Results: none';
+  return `+ Filtered Results! Only showing: ${res.join(' ')}`;
 }
 
 /**
@@ -129,7 +131,7 @@ export async function sendRankings(
     let data: Object = PLACEHOLDER_DATA;
     if (rankPos < rankings.length) data = rankings[rankPos++];
     if (update) {
-      data = Object.assign({updateId: update.id}, data);
+      data = Object.assign(data, {updateId: update.id});
     }
 
     let jsonData = JSON.stringify(data, null, 2);
@@ -145,6 +147,7 @@ export async function sendRankings(
   const dpString = dataPoints.toLocaleString('en-US');
   const filtered = total - rankings.length;
   const filterString = getFilterString(State.getFilter());
+
   let updateString = '';
   if (update) {
     updateString = `Update Id: ${update.id}, time took: ${update.time}s`;
@@ -157,13 +160,13 @@ export async function sendRankings(
     'markdown',
     `${updateString}` +
       `+ Processed ${total} products and ${dpString} candles, filtered ${filtered} rankings.\n` +
-      `${filterString}` +
+      `${filterString}\n` +
       `+ Updated @Local: ${date}\n` +
       `+ Updated @ISO-8601: ${date.toISOString()}\n` +
       `\nNotes:\n` +
       `+ Values of '-1' indicate errors, not enough data, or data not calculated.\n` +
-      `+ Filtered results: none\n` +
       `\nKey:\n` +
+      `+ 'change24hr' - Percentage of change since the price 24hrs ago.\n` +
       `+ 'SMA/EMA' - Simple / Exponential Moving Averages.\n` +
       `+ 'dataPoints' - Amount of candles available and processed.\n` +
       `+ 'movement' - Amount of buying versus selling orders currently present for top 50 orders. \n` +

@@ -3,7 +3,7 @@ import {CLOSE_WEIGHT, DIFF_WEIGHT, VOLUME_WEIGHT} from '.';
 import {toFixed} from '../product';
 import {toFixed as quickFix} from '../utils';
 import {BucketData} from './bucket';
-import {getLastMA, Indicators, MASet} from './indicators';
+import {Indicators, MASet, RSI_OVERBOUGHT, RSI_OVERSOLD} from './indicators';
 
 export interface SortFilter {
   count?: number;
@@ -11,13 +11,16 @@ export interface SortFilter {
   close?: boolean;
   diff?: boolean;
   volume?: boolean;
+  overbought?: boolean;
+  oversold?: boolean;
 }
 
 export interface ProductRanking {
   productId: string;
   ranking: number;
-  dataPoints: number;
+  change24hr: number;
   movement: number;
+  dataPoints: number;
   indicators: Indicators;
   ratio: {
     rating: number;
@@ -58,6 +61,8 @@ export function sortRankings(
   if (filter.diff) s = s.filter((r) => r.ratio.diff > 1);
   if (filter.volume) s = s.filter((r) => r.ratio.volume > 1);
   if (filter.movement) s = s.filter((r) => r.movement > 1);
+  if (filter.overbought) s = s.filter((r) => r.indicators.rsi > RSI_OVERBOUGHT);
+  if (filter.oversold) s = s.filter((r) => r.indicators.rsi < RSI_OVERSOLD);
 
   s.sort((a, b) => (a.ratio.rating > b.ratio.rating ? -1 : 1));
   if (filter.count && filter.count > 0) s = s.slice(0, filter.count);
@@ -78,6 +83,7 @@ export function sortRankings(
 export function makeRanking(
   productId: string,
   data: BucketData[],
+  change: number,
   indicators: Indicators,
   movement: number,
 ): ProductRanking | undefined {
@@ -109,8 +115,9 @@ export function makeRanking(
   return {
     productId: productId,
     ranking: -1,
-    dataPoints: dataPoints,
+    change24hr: quickFix(change, 2),
     movement: quickFix(movement, 4),
+    dataPoints: dataPoints,
     ratio: {
       rating: quickFix(rating, 4),
       close: quickFix(closeRatio, 4),

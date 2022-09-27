@@ -5,6 +5,7 @@ import {
   SlashCommandBuilder,
 } from 'discord.js';
 import {State} from '../../core';
+import {Products} from '../../product';
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -17,6 +18,17 @@ module.exports = {
         .addStringOption((option) =>
           option
             .setName('product')
+            .setDescription('Id of the product/pair, ie. BTC-USD')
+            .setRequired(true),
+        ),
+    )
+    .addSubcommand((subcmd) =>
+      subcmd
+        .setName('product')
+        .setDescription('retrieve a product.')
+        .addStringOption((option) =>
+          option
+            .setName('id')
             .setDescription('Id of the product/pair, ie. BTC-USD')
             .setRequired(true),
         ),
@@ -43,6 +55,8 @@ module.exports = {
     switch (interaction.options.getSubcommand()) {
       case 'rank':
         return getRank(interaction);
+      case 'product':
+        return getProduct(interaction);
       case 'update':
         return getUpdate(interaction);
       case 'filter':
@@ -78,6 +92,32 @@ function getRank(interaction: CommandInteraction) {
 
   return interaction.reply({
     content: codeBlock('json', JSON.stringify(rank, null, 2)),
+    ephemeral: false,
+  });
+}
+
+function getProduct(interaction: CommandInteraction) {
+  if (!interaction.isChatInputCommand()) {
+    return interaction.reply({
+      content: `This is not a chat input command.`,
+      ephemeral: true,
+    });
+  }
+
+  const opts = interaction.options;
+  const productId = opts.getString('id', true) ?? '';
+  const product = Products.get(productId.toUpperCase());
+  if (productId === '' || !product) {
+    return interaction.reply({
+      content:
+        `Attempted to get an invalid product: ${productId}. ` +
+        `Could be disabled, delisted, non-existent, or typo'd.`,
+      ephemeral: true,
+    });
+  }
+
+  return interaction.reply({
+    content: codeBlock('json', JSON.stringify(product, null, 2)),
     ephemeral: false,
   });
 }

@@ -11,11 +11,11 @@ import {APP_DEBUG} from '..';
 import {ProductData} from './product-data';
 import {DataOpts} from './opts';
 import {sendAnalysis, sendChanges, sendRankings} from '../discord/notification';
-import {crossAnalysis, macdAnalysis} from './indicators/analysis';
 import {DiscordBot} from '../discord/discord-bot';
 import {discordWarn} from '../discord';
 import {EmitEventType, EmitServer} from '../emitter';
 import * as WebSocket from 'ws';
+import {crossAnalysis, macdAnalysis, rsiAnalysis} from './indicators';
 
 const PRODUCT_OPTS: ProductOptions = {
   include: ['USD'],
@@ -23,6 +23,12 @@ const PRODUCT_OPTS: ProductOptions = {
   disabledTrades: false,
   stablepairs: false,
 };
+
+interface AnalysisResults {
+  cross: string[];
+  macd: string[];
+  rsi: string[];
+}
 
 function printIteration(pId: string, i: number, total: number, ts: number) {
   if (!APP_DEBUG) return;
@@ -109,6 +115,20 @@ export class State {
 
     if (filter.movement !== undefined && filter.movement !== old.movement) {
       State.sortFilter.movement = filter.movement;
+    }
+    if (filter.movement !== undefined && filter.movement !== old.movement) {
+      State.sortFilter.movement = filter.movement;
+    }
+
+    if (
+      filter.overbought !== undefined &&
+      filter.overbought !== old.overbought
+    ) {
+      State.sortFilter.overbought = filter.overbought;
+    }
+
+    if (filter.oversold !== undefined && filter.oversold !== old.oversold) {
+      State.sortFilter.oversold = filter.oversold;
     }
 
     return State.getFilter();
@@ -317,14 +337,6 @@ async function initState(opts: DataOpts) {
   );
   coreDebug(`Bucket and Rank creation execution took ${sw.stop()} seconds.`);
 
-  // Perform analysis.
-  sw.restart();
-  const {cross, macd} = doAnalysis(products);
-
-  if (cross.length > 0) sendAnalysis('Cross', cross, updateId);
-  if (macd.length > 0) sendAnalysis('MACD', macd, updateId);
-  coreDebug(`Indicator analysis took ${sw.stop()} seconds.`);
-
   DiscordBot.setActivity(`with: ${updateId}`);
   State.updateId = updateId;
   coreDebug(`Startup execution took ${sw.totalMs / 1000} seconds.`);
@@ -399,8 +411,8 @@ async function updateData(): Promise<ProductRanking[]> {
   // Perform analysis.
   sw.restart();
   const analysis = doAnalysis(products);
-
   const res = formatAnalysis(analysis);
+
   if (res.length > 0) sendAnalysis('ALL', res, updateId);
   coreDebug(`Indicator analysis took ${sw.stop()} seconds.`);
 
@@ -423,8 +435,8 @@ async function updateData(): Promise<ProductRanking[]> {
  *
  * @param {string[]} products - Products to process.
  */
-function doAnalysis(products: string[]): {cross: string[]; macd: string[]} {
-  const res: {cross: string[]; macd: string[]} = {cross: [], macd: []};
+function doAnalysis(products: string[]): AnalysisResults {
+  const res: AnalysisResults = {cross: [], macd: [], rsi: []};
 
   for (const pId of products) {
     const pData = ProductData.find(pId);
@@ -438,6 +450,10 @@ function doAnalysis(products: string[]): {cross: string[]; macd: string[]} {
     // Get MACD
     let macd = macdAnalysis(pData);
     if (macd.length > 0) res.macd = res.macd.concat(macd);
+
+    // Get RSI
+    let rsi = rsiAnalysis(pData);
+    if (rsi && rsi !== '') res.rsi.push(rsi);
   }
 
   return res;
@@ -446,17 +462,24 @@ function doAnalysis(products: string[]): {cross: string[]; macd: string[]} {
 /**
  * Combines all of the analysis into a single list.
  */
-function formatAnalysis(data: {cross: string[]; macd: string[]}): string[] {
+function formatAnalysis(data: AnalysisResults): string[] {
   let res: string[] = [];
-  if (data.cross.length > 0) {
-    res.push('Cross Analysis:');
-    res = res.concat(data.cross.map((d) => `+ ${d}`));
+
+  if (data.rsi.length > 0) {
+    res.push('RSI Analysis:');
+    res = res.concat(data.rsi.map((d) => `+ ${d}`));
   }
 
   if (res.length > 0) res.push('');
   if (data.macd.length > 0) {
     res.push('MACD Analysis:');
     res = res.concat(data.macd.map((d) => `+ ${d}`));
+  }
+
+  if (res.length > 0) res.push('');
+  if (data.cross.length > 0) {
+    res.push('Cross Analysis:');
+    res = res.concat(data.cross.map((d) => `+ ${d}`));
   }
 
   return res;

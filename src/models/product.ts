@@ -5,6 +5,7 @@ const {Schema, model} = mongoose;
 
 export interface Product extends IProduct {
   useSandbox: boolean;
+  stable_pair: boolean;
 }
 
 const productSchema = new Schema<Product>(
@@ -26,6 +27,7 @@ const productSchema = new Schema<Product>(
     post_only: Boolean,
     status: String,
     status_message: String,
+    stable_pair: Boolean,
     trading_disabled: Boolean,
   },
   {collection: 'products'},
