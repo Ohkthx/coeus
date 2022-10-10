@@ -253,13 +253,15 @@ export class Products {
       return text.replace(/_/g, ' ');
     };
 
-    for (const [key, value] of Object.entries(newProduct)) {
+    for (let [key, value] of Object.entries(newProduct)) {
+      value = JSON.stringify(value);
+
       if (!Object.keys(oldProduct).includes(key)) {
         changes.push(`${pId}: ['${r(key)}'] = '${value}' added.`);
         continue;
       }
 
-      const oldValue = Object(oldProduct)[key];
+      const oldValue = JSON.stringify(Object(oldProduct)[key]);
       if (oldValue === value) continue;
       changes.push(
         `${pId}: ['${r(key)}'] changed from '${oldValue}' to '${value}'`,
@@ -267,7 +269,8 @@ export class Products {
     }
 
     // Check if any were removed.
-    for (const [key, value] of Object.entries(oldProduct)) {
+    for (let [key, value] of Object.entries(oldProduct)) {
+      value = JSON.stringify(value);
       if (!Object.keys(newProduct).includes(key)) {
         changes.push(`${pId}: ['${r(key)}'] = '${value}' removed.`);
       }

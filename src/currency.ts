@@ -147,13 +147,14 @@ export class Currencies {
       return text.replace(/_/g, ' ');
     };
 
-    for (const [key, value] of Object.entries(newCurrency)) {
+    for (let [key, value] of Object.entries(newCurrency)) {
+      value = JSON.stringify(value);
       if (!Object.keys(oldCurrency).includes(key)) {
         changes.push(`${pId}: ['${r(key)}'] = '${value}' added.`);
         continue;
       }
 
-      const oldValue = Object(oldCurrency)[key];
+      const oldValue = JSON.stringify(Object(oldCurrency)[key]);
       if (oldValue === value) continue;
       changes.push(
         `${pId}: ['${r(key)}'] changed from '${oldValue}' to '${value}'`,
@@ -161,9 +162,12 @@ export class Currencies {
     }
 
     // Check if any were removed.
-    for (const [key, value] of Object.entries(oldCurrency)) {
+    for (let [key, value] of Object.entries(oldCurrency)) {
+      value = JSON.stringify(value);
       if (!Object.keys(newCurrency).includes(key)) {
-        changes.push(`${pId}: ['${r(key)}'] = '${value}' removed.`);
+        changes.push(
+          `${pId}: ['${r(key)}'] = '${JSON.stringify(value)}' removed.`,
+        );
       }
     }
 

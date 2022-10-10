@@ -13,9 +13,9 @@ export function macdAnalysis(data: ProductData): string[] {
 
   const res: string[] = [];
   if (last.value < 0 && now.value > 0) {
-    res.push(`crossed the BASE line moving UP.`);
+    res.push(`crossed the BASE line moving UP`);
   } else if (last.value > 0 && now.value < 0) {
-    res.push(`crossed the BASE line moving DOWN.`);
+    res.push(`crossed the BASE line moving DOWN`);
   }
 
   let lastAbove: boolean = false;
@@ -24,9 +24,9 @@ export function macdAnalysis(data: ProductData): string[] {
   if (now.value > now.signal) nowAbove = true;
 
   if (nowAbove && !lastAbove) {
-    res.push(`crossed the SIGNAL line moving UP.`);
+    res.push(`crossed the SIGNAL line moving UP`);
   } else if (!nowAbove && lastAbove) {
-    res.push(`crossed the SIGNAL line moving DOWN.`);
+    res.push(`crossed the SIGNAL line moving DOWN`);
   }
 
   for (let i = 0; i < res.length; i++) {

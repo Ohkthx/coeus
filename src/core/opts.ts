@@ -2,7 +2,8 @@ import {ONE_MINUTE_TO_S} from '.';
 import {getSpan} from '../timespan';
 
 export interface CandleOpts {
-  granularity: number;
+  frequency: number;
+  sGranularity: number;
   pullNew: boolean;
 }
 
@@ -24,6 +25,17 @@ export class DataOpts {
    * @param {BucketOpts} bucketOpts - Options for processing buckets.
    */
   constructor(end: Date, candleOpts: CandleOpts, bucketOpts: BucketOpts) {
+    const {sGranularity, frequency} = candleOpts;
+    const mGranularity = sGranularity / ONE_MINUTE_TO_S;
+    const updateFrequency = frequency * mGranularity;
+    if (60 % updateFrequency !== 0) {
+      throw new Error(
+        `update frequency must be divisible by 60, provided:\n` +
+          `  ${mGranularity} granularity in minutes and a frequency of ${frequency}\n` +
+          `  resulting in updates every ${updateFrequency} minutes.`,
+      );
+    }
+
     this.cOpts = candleOpts;
     this.bOpts = bucketOpts;
 
@@ -32,12 +44,16 @@ export class DataOpts {
 
   /**
    * Returns the current Candle Options.
+   *  mUpdateFrequency - Frequency to pull candle data in minutes.
+   *  sGranularity - Size of each candle in seconds.
+   *  pullNew - Grab new candles when prompted.
    *
    * @returns {CandleOpts} Candle options.
    */
   get candle(): CandleOpts {
     return {
-      granularity: this.cOpts.granularity,
+      frequency: this.cOpts.frequency,
+      sGranularity: this.cOpts.sGranularity,
       pullNew: this.cOpts.pullNew,
     };
   }
@@ -55,20 +71,6 @@ export class DataOpts {
   }
 
   /**
-   * Length of a single bucket in milliseconds.
-   */
-  get bucketLengthMs(): number {
-    return this.bucket.candlesPer * this.candle.granularity * 1000;
-  }
-
-  /**
-   * Length of all buckets in milliseconds.
-   */
-  get totalLengthMs(): number {
-    return this.totalCandleCount * this.candle.granularity * 1000;
-  }
-
-  /**
    * Total amount of candles for all buckets.
    */
   get totalCandleCount(): number {
@@ -76,10 +78,31 @@ export class DataOpts {
   }
 
   /**
+   * Length of all buckets in milliseconds.
+   */
+  get msTotalLength(): number {
+    return this.totalCandleCount * this.candle.sGranularity * 1000;
+  }
+
+  /**
+   * Length of a single bucket in milliseconds.
+   */
+  get msBucketLength(): number {
+    return this.bucket.candlesPer * this.candle.sGranularity * 1000;
+  }
+
+  /**
    * Size of a single candle in minutes.
    */
-  get candleSizeMin(): number {
-    return this.candle.granularity / ONE_MINUTE_TO_S;
+  get mCandleSize(): number {
+    return this.candle.sGranularity / ONE_MINUTE_TO_S;
+  }
+
+  /**
+   * How often to update and obtain new candles in minutes.
+   */
+  get mUpdateFrequency(): number {
+    return this.candle.frequency * this.mCandleSize;
   }
 
   /**
@@ -87,8 +110,8 @@ export class DataOpts {
    */
   get span(): {start: Date; end: Date} {
     let past = new Date(this.end);
-    past.setTime(past.getTime() - this.totalLengthMs);
-    const {start, end} = getSpan(past, this.candleSizeMin, new Date(this.end));
+    past.setTime(past.getTime() - this.msTotalLength);
+    const {start, end} = getSpan(past, this.mCandleSize, new Date(this.end));
     return {start: start, end: end};
   }
 

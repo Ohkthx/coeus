@@ -8,7 +8,7 @@ import {AnonymousClient} from '../exchange-api/coinbase';
 import {Currencies, CurrencyUpdate, initCurrency} from '../currency';
 import {delay, getUniqueId} from '../utils';
 import {APP_DEBUG} from '..';
-import {ProductData} from './product-data';
+import {ElapsedTimers, ProductData, timerSummary} from './product-data';
 import {DataOpts} from './opts';
 import {sendAnalysis, sendChanges, sendRankings} from '../discord/notification';
 import {DiscordBot} from '../discord/discord-bot';
@@ -16,6 +16,7 @@ import {discordWarn} from '../discord';
 import {EmitEventType, EmitServer} from '../emitter';
 import * as WebSocket from 'ws';
 import {crossAnalysis, macdAnalysis, rsiAnalysis} from './indicators';
+import {CandleDb} from '../sql';
 
 const PRODUCT_OPTS: ProductOptions = {
   include: ['USD'],
@@ -55,15 +56,15 @@ export class State {
    * @param {DataOpts} config - Configuration to use for processing.
    */
   constructor(config: DataOpts) {
-    const {candleSizeMin, bucket} = config;
-    if (60 % candleSizeMin !== 0) {
+    const {mCandleSize, bucket} = config;
+    if (60 % mCandleSize !== 0) {
       throw new Error(
-        `[core] candle size of '${candleSizeMin}' is invalid. ` +
+        `[core] candle size of '${mCandleSize}' is invalid. ` +
           `Must be divisible by 60.`,
       );
-    } else if (candleSizeMin > 60) {
+    } else if (mCandleSize > 60) {
       throw new Error(
-        `[core] candle size of '${candleSizeMin}' is invalid. ` +
+        `[core] candle size of '${mCandleSize}' is invalid. ` +
           `Cannot exceed 60.`,
       );
     } else if (bucket.candlesPer < 2) {
@@ -82,7 +83,7 @@ export class State {
   }
 
   static get timestamp(): Date {
-    return setToZero(new Date(), State.stateConfig.candleSizeMin);
+    return setToZero(new Date(), State.stateConfig.mCandleSize);
   }
 
   static get config(): DataOpts {
@@ -282,12 +283,12 @@ async function initState(opts: DataOpts) {
   new State(opts);
 
   // Run on periods of the candle size.
-  const cronSchedule = `*/${opts.candleSizeMin} * * * *`;
+  const cronSchedule = `*/${opts.mUpdateFrequency} * * * *`;
   if (!validate(cronSchedule)) {
     throw new Error(`invalid cron schedule provided: '${cronSchedule}'`);
   }
 
-  coreInfo(`update period of ${opts.candleSizeMin} min currently set.`);
+  coreInfo(`update period of ${opts.mUpdateFrequency} min currently set.`);
   schedule(cronSchedule, State.updateDataWrapper);
 
   const updateId = getUniqueId();
@@ -300,20 +301,25 @@ async function initState(opts: DataOpts) {
   // Load all data and get new timestamp.
   const sw = new Stopwatch();
   let loaded: number = 0;
+  const elapses: ElapsedTimers[] = [];
   const products = Products.filter(PRODUCT_OPTS).map((p) => p.id);
+
   for (let i = 0; i < products.length; i++) {
     const pId = products[i];
-    printIteration(pId, i, products.length, sw.print());
+    const pData = ProductData.initialize(pId, opts.start.toISOString());
 
-    const pData = await ProductData.initialize(pId, opts.start.toISOString());
-    const update = await pData.update();
-    if (update.data) {
-      State.setRanking(update.data);
-      loaded++;
-    }
+    printIteration(pId, i, products.length, sw.print());
+    const update = await pData.update(opts.start.toISOString());
+    if (!update) continue;
+
+    elapses.push(update.ts);
+    loaded++;
+    if (update.data) State.setRanking(update.data);
   }
 
-  coreDebug(`loaded ${loaded} product data.`);
+  coreDebug(`loaded ${loaded} product data, ${sw.stop()} seconds.`);
+  const tTimer: ElapsedTimers = addTimers(elapses);
+  coreDebug(timerSummary(tTimer));
 
   // Send the updated rankings to discord.
   sendRankings(
@@ -322,13 +328,12 @@ async function initState(opts: DataOpts) {
     State.getDataPoints(),
     {
       id: updateId,
-      time: Number((sw.totalMs / 1000).toFixed(4)),
+      time: Number(tTimer.total.toFixed(4)),
     },
   );
 
   DiscordBot.setActivity(`with: ${updateId}`);
   State.updateId = updateId;
-  coreDebug(`Startup execution took ${sw.stop()} seconds.`);
   coreInfo(`timestamp: ${State.timestamp.toISOString()}.`);
 }
 
@@ -354,18 +359,33 @@ async function updateData(): Promise<ProductRanking[]> {
   coreDebug(`Product updates execution took ${sw.stop()} seconds.`);
 
   sw.restart();
+  const elapses: ElapsedTimers[] = [];
   for (let i = 0; i < products.length; i++) {
     const pId = products[i];
     const pData = ProductData.find(pId);
     if (!pData) continue;
 
     printIteration(pId, i, products.length, sw.print());
-    const update = await pData.update({ts: opts.end, pullNew: true});
-    if (update.data) {
-      State.setRanking(update.data);
-    }
+    const update = await pData.update(opts.start.toISOString(), {
+      ts: opts.end,
+      pullNew: true,
+    });
+    if (!update) continue;
+
+    elapses.push(update.ts);
+    if (update.data) State.setRanking(update.data);
   }
-  coreDebug(`Update execution took ${sw.stop()} seconds.`);
+
+  const tTimer = addTimers(elapses);
+  coreDebug(timerSummary(tTimer));
+
+  // Wait for candles to be done saving.
+  if (CandleDb.isSaving()) {
+    const sw2 = new Stopwatch();
+    coreDebug('[candles] currently saving candles... waiting.');
+    while (CandleDb.isSaving()) await delay(250);
+    coreDebug(`[candles] saved, ${sw2.stop()} seconds.`);
+  }
 
   // Send the updated rankings to the websocket.
   const emitRanking = EmitServer.createMessage(
@@ -381,27 +401,24 @@ async function updateData(): Promise<ProductRanking[]> {
     State.getDataPoints(),
     {
       id: updateId,
-      time: Number((sw.totalMs / 1000).toFixed(4)),
+      time: Number(tTimer.total.toFixed(4)),
     },
   );
 
   // Perform analysis.
-  sw.restart();
   const analysis = doAnalysis(products);
   const res = formatAnalysis(analysis);
-
   if (res.length > 0) sendAnalysis('ALL', res, updateId);
-  coreDebug(`Indicator analysis took ${sw.stop()} seconds.`);
+  coreDebug(`Indicator analysis complete.`);
 
   const emitMessage = EmitServer.createMessage(
     EmitEventType.MESSAGE,
-    `'${updateId}' completed: ${sw.totalMs / 1000} seconds.`,
+    `'${updateId}': update complete.`,
   );
   EmitServer.broadcast(emitMessage);
 
   DiscordBot.setActivity(`with: ${updateId}`);
   State.updateId = updateId;
-  coreDebug(`Total execution took ${sw.totalMs / 1000} seconds.`);
   coreInfo(`${updateId}: update complete.\n`);
 
   return State.getSortedRankings();
@@ -528,4 +545,31 @@ async function updateCurrencies() {
   if (changes.length > 0) {
     await sendChanges('Currency', changes, State.updateId);
   }
+}
+
+function addTimers(timers: ElapsedTimers[]): ElapsedTimers {
+  const totalElapsed: ElapsedTimers = {
+    productId: 'total',
+    loading: 0,
+    updating: 0,
+    saving: 0,
+    buckets: 0,
+    movement: 0,
+    indicators: 0,
+    ranks: 0,
+    total: 0,
+  };
+
+  for (const t of timers) {
+    totalElapsed.loading += t.loading;
+    totalElapsed.updating += t.updating;
+    totalElapsed.saving += t.saving;
+    totalElapsed.buckets += t.buckets;
+    totalElapsed.movement += t.movement;
+    totalElapsed.indicators += t.indicators;
+    totalElapsed.ranks += t.ranks;
+    totalElapsed.total += t.total;
+  }
+
+  return totalElapsed;
 }

@@ -76,8 +76,8 @@ function createCandleBuckets(
 ): CandleBucket[] {
   // Create a timespan for the first bucket to get resized.
   let past = new Date(opts.end);
-  past.setTime(past.getTime() - opts.bucketLengthMs);
-  let {start, end} = getSpan(past, opts.candleSizeMin, new Date(opts.end));
+  past.setTime(past.getTime() - opts.msBucketLength);
+  let {start, end} = getSpan(past, opts.mUpdateFrequency, new Date(opts.end));
 
   const spans: Timespan[] = [];
   const buckets: CandleBucket[] = [];
@@ -89,7 +89,7 @@ function createCandleBuckets(
     buckets.push({timestampISO: end.toISOString(), candles: []});
 
     end = new Date(start);
-    start.setTime(start.getTime() - opts.bucketLengthMs);
+    start.setTime(start.getTime() - opts.msBucketLength);
   }
 
   // Process each candle, and place it in the correct bucket based on timestamp.

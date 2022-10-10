@@ -13,9 +13,9 @@ export function rsiAnalysis(data: ProductData): string | undefined {
 
   const pId = data.productId;
   if (wasInRange && isHigh) {
-    return `${pId}-RSI: now overbought starting @$${data.lastClose}, RSI: ${now}.`;
+    return `${pId}-RSI: now overbought starting @$${data.lastClose}, RSI: ${now}`;
   } else if (wasInRange && isLow) {
-    return `${pId}-RSI: now oversold starting @$${data.lastClose}, RSI: ${now}.`;
+    return `${pId}-RSI: now oversold starting @$${data.lastClose}, RSI: ${now}`;
   }
 }
 

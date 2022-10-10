@@ -1,11 +1,25 @@
 import {Candle} from 'coinbase-pro-node';
+import {
+  GridFSBucket,
+  GridFSBucketReadStream,
+  GridFSBucketWriteStream,
+  ObjectId,
+} from 'mongodb';
+import mongoose from 'mongoose';
 import {coreErr} from '.';
-import {USE_SANDBOX} from '..';
 import {AnonymousClient} from '../exchange-api/coinbase';
-import {CandleData, CandleDataModel, SimpleCandle} from '../models/candle';
+import {SimpleCandle} from '../models/candle';
 import {DataOpts} from './opts';
 
-const CANDLE_STATUS = new Map<string, boolean>();
+/**
+ * Convert from milliseconds to seconds. Mostly for easier reading.
+ *
+ * @param {number} msValue - Time in milliseconds to convert.
+ * @returns {number} Value provided now in seconds.
+ */
+function msToSeconds(msValue: number): number {
+  return msValue / 1000;
+}
 
 /**
  * Obtains candles from a local database, then pull any new candles that are
@@ -27,27 +41,29 @@ export async function getCandles(
   if (startOverride) start = startOverride;
 
   let newCandles: SimpleCandle[] = [];
-  const timeDiffSec = (end.getTime() - start.getTime()) / 1000;
+  const sTimeDiff = msToSeconds(end.getTime() - start.getTime());
   // If at least one candle could be pulled, then attempt to get it from API.
-  if (timeDiffSec < opts.candle.granularity) return [];
+  if (sTimeDiff < opts.candle.sGranularity) return [];
 
+  // Increase the time by a single second so that we pull
+  // the entire most recent candle.
   start.setTime(start.getTime() + 1000);
+
+  // Get the candles from the API.
   return AnonymousClient.getCandles(
     productId,
-    opts.candle.granularity,
+    opts.candle.sGranularity,
     end,
     start,
   )
     .then((pulledCandles) => {
       // Convert candles to SimpleCandle for storage and space reduction.
       for (const c of pulledCandles) newCandles.push(convert(c));
-      if (newCandles.length > 0) {
-        saveCandles(productId, newCandles, opts.totalCandleCount);
-      }
-
       return newCandles;
     })
     .catch((err) => {
+      coreErr(`something happened: ${err}`);
+      coreErr(`${start} => ${end}: ${new Date().toISOString()}`);
       coreErr(err);
       return [];
     });
@@ -87,57 +103,6 @@ export function combineCandles(
   }
 
   return oldCandles;
-}
-
-export function isSavingCandles(): boolean {
-  for (const [key, value] of CANDLE_STATUS.entries()) {
-    if (value) return true;
-  }
-
-  return false;
-}
-
-/**
- * Appends candle data to database, creating product if it does not exist.
- *
- * @param {string} productId - Product/pair to update.
- * @param {SimpleCandle[]} data - Candles in array format to append.
- * @param {number} maxCount - Maximum amount of data to store in database.
- */
-export async function saveCandles(
-  productId: string,
-  data: SimpleCandle[],
-  maxCount: number,
-) {
-  CANDLE_STATUS.set(productId, true);
-  await CandleDataModel.updateOne(
-    {productId: productId, useSandbox: USE_SANDBOX},
-    {$push: {candles: {$each: data, $slice: -maxCount}}},
-    {upsert: true},
-  );
-  CANDLE_STATUS.set(productId, false);
-}
-
-/**
- * Loads all candle data from mongodb.
- *
- * @param {string} productId - Product/pair to get.
- * @returns {Promise<Record<string, SimpleCandle[]>>} Candle data for each product/pairs.
- */
-export async function loadCandleData(productId: string): Promise<CandleData> {
-  let data = (await CandleDataModel.findOne(
-    {productId: productId, useSandbox: USE_SANDBOX},
-    null,
-    {
-      lean: true,
-    },
-  )) as CandleData;
-
-  if (!data) {
-    data = {productId: productId, useSandbox: USE_SANDBOX, candles: []};
-  }
-
-  return data;
 }
 
 /**

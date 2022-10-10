@@ -58,7 +58,7 @@ function crossToText(
 ): string {
   return (
     `${pId}-${low}-${high}-${ma}: '${ch}' cross ocurred between ` +
-    `${low}-${ma} and ${high}-${ma}.`
+    `${low}-${ma} and ${high}-${ma}`
   );
 }
 

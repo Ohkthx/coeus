@@ -1,9 +1,13 @@
-import {CANDLE_GRANULARITY, coreErr, MAX_DAYS_OF_DATA, ONE_DAY_TO_S} from '.';
+import {to} from 'mathjs';
+import {coreErr, ONE_DAY_TO_S} from '.';
+import {MAX_DAYS_OF_DATA, S_GRANULARITY, UPDATE_FREQUENCY} from '..';
 import {AnonymousClient} from '../exchange-api/coinbase';
 import {SimpleCandle} from '../models';
 import {toFixed} from '../product';
+import {CandleDb} from '../sql';
+import {Stopwatch} from '../stopwatch';
 import {BucketData, createBucketData} from './bucket';
-import {combineCandles, getCandles, loadCandleData} from './candle';
+import {combineCandles, getCandles} from './candle';
 import {Indicators} from './indicators';
 import {calcMACD, calcRSI} from './indicators';
 import {
@@ -25,14 +29,62 @@ function lastN(n: number[]): number | undefined {
   return n[n.length - 1];
 }
 
-export interface ProductUpdate {
+export interface ElapsedTimers {
+  productId: string;
+  loading: number;
+  updating: number;
+  saving: number;
+  buckets: number;
+  movement: number;
+  indicators: number;
+  ranks: number;
+  total: number;
+}
+
+export interface ProductDataUpdate {
   data: ProductRanking | undefined;
-  ts: {
-    candles: number;
-    buckets: number;
-    indicators: number;
-    ranks: number;
-  };
+  ts: ElapsedTimers;
+}
+
+class UpdateData {
+  oldCandles: SimpleCandle[] = [];
+  newCandles: SimpleCandle[] = [];
+
+  get pulledNew() {
+    return this.newCandles.length > 0;
+  }
+
+  totalCandles(opts: DataOpts): SimpleCandle[] {
+    if (!this.pulledNew) return this.oldCandles;
+
+    return combineCandles(
+      this.oldCandles,
+      this.newCandles,
+      opts.start.toISOString(),
+      opts.totalCandleCount,
+    );
+  }
+}
+
+/**
+ * Converts the elapsed amount of time into a summary.
+ *
+ * @param {ElapsedTimers} timers - Elapsed data to summarize.
+ * @returns {string} Summary of the data provided.
+ */
+export function timerSummary(timers: ElapsedTimers): string {
+  return (
+    `creating a summary.\n` +
+    `Summary (in seconds elapsed):\n` +
+    `  Loading Candles .... ${timers.loading.toFixed(3)}\n` +
+    `  Updating Candles ... ${timers.updating.toFixed(3)}\n` +
+    `  Saving Candles ..... ${timers.saving.toFixed(3)}\n` +
+    `  Buckets Creation ... ${timers.buckets.toFixed(3)}\n` +
+    `  Movement Creation .. ${timers.movement.toFixed(3)}\n` +
+    `  Indicators Creation  ${timers.indicators.toFixed(3)}\n` +
+    `  New Ranks Creation . ${timers.ranks.toFixed(3)}\n` +
+    `  Total Execution .... ${timers.total.toFixed(3)}`
+  );
 }
 
 export class ProductData {
@@ -64,8 +116,11 @@ export class ProductData {
    * @param {SimpleCandle[]} candles - Candles to analyze for latest timestamp.
    */
   private setLastTimestamp(candles: SimpleCandle[]) {
-    if (candles.length === 0) return new Date(this.oldestISO);
-    this.lastTimestamp = new Date(candles[candles.length - 1].openTimeInISO);
+    if (candles.length === 0) {
+      this.lastTimestamp = new Date(this.oldestISO);
+    } else {
+      this.lastTimestamp = new Date(candles[candles.length - 1].openTimeInISO);
+    }
   }
 
   /**
@@ -113,14 +168,29 @@ export class ProductData {
     return new DataOpts(
       this.lastTimestamp,
       {
-        granularity: CANDLE_GRANULARITY,
+        frequency: UPDATE_FREQUENCY,
+        sGranularity: S_GRANULARITY,
         pullNew: false,
       },
       {
-        candlesPer: ONE_DAY_TO_S / CANDLE_GRANULARITY,
+        candlesPer: ONE_DAY_TO_S / S_GRANULARITY,
         total: MAX_DAYS_OF_DATA,
       },
     );
+  }
+
+  /**
+   * Loads candles from database.
+   *
+   * @param {string} oldestTsISO - Oldest timestamp to start from.
+   * @returns {Promise<SimpleCandle[]>} Candles stored in database.
+   */
+  private async loadCandles(oldestTsISO: string): Promise<SimpleCandle[]> {
+    const candles = await CandleDb.loadCandles(this.productId, oldestTsISO);
+    return candles.map((c) => {
+      c.openTimeInISO = new Date(c.openTimeInISO).toISOString();
+      return c;
+    });
   }
 
   /**
@@ -129,20 +199,8 @@ export class ProductData {
    *
    * @param {DataOpts} opts - Options that modify what data is pulled from remote sources.
    */
-  private async updateCandles(
-    oldCandles: SimpleCandle[],
-    opts: DataOpts,
-  ): Promise<SimpleCandle[]> {
-    const candles = await getCandles(this.productId, opts, this.lastTimestamp);
-    if (candles.length === 0) return oldCandles;
-
-    // Combine the new data into the old data.
-    return combineCandles(
-      oldCandles,
-      candles,
-      opts.start.toISOString(),
-      opts.totalCandleCount,
-    );
+  private async updateCandles(opts: DataOpts): Promise<SimpleCandle[]> {
+    return getCandles(this.productId, opts, this.lastTimestamp);
   }
 
   /**
@@ -238,33 +296,68 @@ export class ProductData {
    * Update the Product, pulling new candles, creating new buckets, generating the
    * movement, and lastly updating the rank.
    *
+   * @param {string} oldestTsISO - Oldest timestamp to start data calculation.
    * @param {{ts: Date; pullNew: boolean} opts - Optional, used to override for updates.
-   * @returns {Promise<ProductUpdate>} Contains the new rank and statistical time data.
+   * @returns {Promise<ProductDataUpdate>} Contains the new rank and statistical time data.
    */
-  async update(opts?: {ts: Date; pullNew: boolean}): Promise<ProductUpdate> {
-    let {candles} = await loadCandleData(this.productId);
+  async update(
+    oldestTsISO: string,
+    opts?: {
+      ts: Date;
+      pullNew: boolean;
+    },
+  ): Promise<ProductDataUpdate> {
+    const updateData = new UpdateData();
+
+    const sw = new Stopwatch();
+    updateData.oldCandles = await this.loadCandles(oldestTsISO);
+    const loadingElapsed: number = sw.stop();
 
     // Update the timestamp because we may have gotten new candles.
     //   Get updated data pulling options.
-    this.setLastTimestamp(candles);
+    this.setLastTimestamp(updateData.oldCandles);
     let dataOpts = this.createDataOpts();
 
+    let updatingElapsed: number = 0;
     if (opts) {
+      sw.restart();
       dataOpts.setEnd(opts.ts);
       dataOpts.setPullNew(opts.pullNew);
       // This is a true update, get new candle data.
-      candles = await this.updateCandles(candles, dataOpts);
+      updateData.newCandles = await this.updateCandles(dataOpts);
 
       // Reassign because newer data may have been acquired.
-      this.setLastTimestamp(candles);
-      dataOpts = this.createDataOpts();
+      if (updateData.pulledNew) {
+        this.setLastTimestamp(updateData.newCandles);
+        dataOpts = this.createDataOpts();
+      }
+      updatingElapsed = sw.stop();
+    }
+
+    let savingElapsed: number = 0;
+    if (updateData.pulledNew) {
+      sw.restart();
+      await CandleDb.saveCandles(this.productId, updateData.newCandles, true);
+      savingElapsed = sw.stop();
     }
 
     // Generate the buckets from new candles.
-    const buckets = this.createBuckets(candles, dataOpts);
+    sw.restart();
+    const buckets = this.createBuckets(
+      updateData.totalCandles(dataOpts),
+      dataOpts,
+    );
     this.setBuckets(buckets);
+    const bucketsElapsed: number = sw.stop();
+
+    // Generate the new movement.
+    sw.restart();
+    let movement: number = -1;
+    if (opts) movement = await this.getMovement();
+    const movementElapsed: number = sw.stop();
 
     // Create the closes from buckets, used for indicators.
+    sw.restart();
     const closes = buckets.map((b) => b.price.close);
     let change: number = 0;
     if (closes.length > 1) {
@@ -272,14 +365,12 @@ export class ProductData {
       change = (ratio - 1) * 100;
     }
 
-    // Generate the new movement.
-    let movement: number = -1;
-    if (opts) movement = await this.getMovement();
-
     // Create the indicators
     const indicators = this.createIndicators(closes);
+    const indicatorsElapsed: number = sw.stop();
 
     // Create the new ranking and update if created.
+    sw.restart();
     const newRanking = makeRanking(
       this.productId,
       buckets,
@@ -291,14 +382,20 @@ export class ProductData {
       this.lastRanking = this.currentRanking;
       this.currentRanking = newRanking;
     }
+    const ranksElapsed: number = sw.stop();
 
     return {
       data: newRanking,
       ts: {
-        candles: 0,
-        buckets: 0,
-        indicators: 0,
-        ranks: 0,
+        productId: this.productId,
+        loading: loadingElapsed,
+        updating: updatingElapsed,
+        saving: savingElapsed,
+        buckets: bucketsElapsed,
+        movement: movementElapsed,
+        indicators: indicatorsElapsed,
+        ranks: ranksElapsed,
+        total: Stopwatch.msToSeconds(sw.totalMs),
       },
     };
   }
@@ -345,12 +442,9 @@ export class ProductData {
    *
    * @param {string} productId - Product/Pair to create data for.
    * @param {string} oldestISO - Oldest timestamp to default to with no candles found.
-   * @returns {Promise<ProductData>} Newly created data for a product.
+   * @returns {ProductData} Newly created data for a product.
    */
-  static async initialize(
-    productId: string,
-    oldestISO: string,
-  ): Promise<ProductData> {
+  static initialize(productId: string, oldestISO: string): ProductData {
     const data = ProductData.find(productId);
     if (data) return data;
 

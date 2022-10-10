@@ -7,7 +7,10 @@ export class Stopwatch {
   /**
    * Re/start the stopwatch.
    */
-  restart = () => this.start();
+  restart() {
+    this.start();
+  }
+
   start() {
     this.stopped = false;
     this.startMs = Date.now();
@@ -39,7 +42,7 @@ export class Stopwatch {
   }
 
   static msToMin(ms: number): number {
-    return ms / 1000 / 60;
+    return Stopwatch.msToSeconds(ms) / 60;
   }
 
   static msToDays(ms: number): number {
@@ -48,5 +51,9 @@ export class Stopwatch {
 
   static daysToMs(days: number): number {
     return days * 24 * 60 * 60 * 1000;
+  }
+
+  static msToSeconds(ms: number): number {
+    return ms / 1000;
   }
 }

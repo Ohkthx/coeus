@@ -1,29 +1,38 @@
-import {
-  CANDLE_GRANULARITY,
-  isSavingCandles,
-  MAX_DAYS_OF_DATA,
-  ONE_DAY_TO_S,
-  State,
-} from './core';
+import {ONE_DAY_TO_S, State} from './core';
 import {delay} from './utils';
 import {connect} from 'mongoose';
 import {ConsoleState} from './commands';
 import {HTTPServer} from './rest';
-import {APP_DEBUG, DB_DATABASE, USE_SANDBOX, appInfo, appErr, appWarn} from '.';
+import {
+  APP_DEBUG,
+  DB_DATABASE,
+  USE_SANDBOX,
+  appInfo,
+  appErr,
+  appWarn,
+  S_GRANULARITY,
+  UPDATE_FREQUENCY,
+  MAX_DAYS_OF_DATA,
+} from '.';
 import {DataOpts} from './core/opts';
 import {DiscordBot} from './discord/discord-bot';
 import {EmitServer} from './emitter';
+import {CandleDb} from './sql';
 
+const mUpdateTime = (S_GRANULARITY / 60) * UPDATE_FREQUENCY;
 appInfo(`APP_DEBUG set to '${APP_DEBUG}'`);
 appInfo(`DB_DATABASE set to '${DB_DATABASE}'`);
 appInfo(`USE_SANDBOX set to '${USE_SANDBOX}'`);
+appInfo(`UPDATE_FREQUENCY set to '${UPDATE_FREQUENCY}'`);
+appInfo(`S_GRANULARITY set to '${S_GRANULARITY}'\n`);
+appInfo(`Updates set to every ${mUpdateTime} minutes.`);
 
-const CANDLES_PER_BUCKET: number = ONE_DAY_TO_S / CANDLE_GRANULARITY;
-
+const CANDLES_PER_BUCKET: number = ONE_DAY_TO_S / S_GRANULARITY;
 const DATA_OPTS = new DataOpts(
   new Date(), // Time to end at.
   {
-    granularity: CANDLE_GRANULARITY, // Size of each candle in seconds.
+    frequency: UPDATE_FREQUENCY, // Amount of candles to wait between updates.
+    sGranularity: S_GRANULARITY, // Size of each candle in seconds.
     pullNew: true, // Pull new candle data or not.
   },
   {
@@ -51,10 +60,11 @@ async function killAll() {
   }
   appInfo('[core] disabled.');
 
-  // Wait for candles to be done saving.
-  if (isSavingCandles()) {
+  // Wait for candles to be done saving and kill the SQL database connection.
+  if (CandleDb.isSaving()) {
     appInfo('[candles] currently saving candles... waiting.');
-    while (isSavingCandles()) await delay(250);
+    while (CandleDb.isSaving()) await delay(250);
+    await CandleDb.killConnection();
     appInfo('[candles] saved.');
   }
 
@@ -70,8 +80,11 @@ async function killAll() {
 }
 
 (async () => {
-  // Make the connection to the database.
+  // Make the connection to the mongo database.
   await connect(`mongodb://localhost/${DB_DATABASE}`);
+
+  // Make the connection to the sql database.
+  await CandleDb.spawnConnection();
 
   // Initialize the Emit Server, but do not start yet.
   EmitServer.init();

@@ -5,9 +5,6 @@ export const ONE_DAY_TO_S: number = 86400;
 export const ONE_HOUR_TO_S: number = 3600;
 export const ONE_MINUTE_TO_S: number = 60;
 
-export const CANDLE_GRANULARITY = ONE_MINUTE_TO_S * 5;
-export const MAX_DAYS_OF_DATA = 300;
-
 // Weights used to modify rankings.
 export const CLOSE_WEIGHT: number = 0.5;
 export const VOLUME_WEIGHT: number = 0.15;
