@@ -1,6 +1,6 @@
-import {to} from 'mathjs';
 import {coreErr, ONE_DAY_TO_S} from '.';
 import {MAX_DAYS_OF_DATA, S_GRANULARITY, UPDATE_FREQUENCY} from '..';
+import {generateIndicatorRows} from '../csv';
 import {AnonymousClient} from '../exchange-api/coinbase';
 import {SimpleCandle} from '../models';
 import {toFixed} from '../product';
@@ -8,7 +8,7 @@ import {CandleDb} from '../sql';
 import {Stopwatch} from '../stopwatch';
 import {BucketData, createBucketData} from './bucket';
 import {combineCandles, getCandles} from './candle';
-import {Indicators} from './indicators';
+import {Indicators, LastIndicators} from './indicators';
 import {calcMACD, calcRSI} from './indicators';
 import {
   calcEMA,
@@ -216,21 +216,40 @@ export class ProductData {
    *
    * @param {number[]} closes - List of closes from oldest to newest.
    */
-  private createIndicators(closes: number[]): Indicators {
-    const maSet = this.createMASet(closes);
+  private createIndicators(
+    closes: {date: string; close: number}[],
+  ): Indicators {
+    const onlyCloses = closes.map((c) => c.close);
+    const onlyDates = closes.map((c) => c.date);
+
+    const maSet = this.createMASet(onlyCloses);
     const short = maSet.ema.twelve ?? [];
     const long = maSet.ema.twentysix ?? [];
     const macds = this.createMACD(short, long);
-    const rsi = calcRSI(closes);
+    const rsi = calcRSI(onlyCloses);
 
     return <Indicators>{
-      rsi: lastN(rsi),
+      dates: onlyDates,
+      closes: onlyCloses,
+      rsi: rsi,
       macd: {
-        value: lastN(macds.value),
-        signal: lastN(macds.signal),
+        value: macds.value,
+        signal: macds.signal,
       },
-      sma: getLastMA(maSet.sma),
-      ema: getLastMA(maSet.ema),
+      sma: maSet.sma,
+      ema: maSet.ema,
+    };
+  }
+
+  private lastIndicators(indicators: Indicators): LastIndicators {
+    return <LastIndicators>{
+      rsi: lastN(indicators.rsi),
+      macd: {
+        value: lastN(indicators.macd.value),
+        signal: lastN(indicators.macd.signal),
+      },
+      sma: getLastMA(indicators.sma),
+      ema: getLastMA(indicators.ema),
     };
   }
 
@@ -354,15 +373,19 @@ export class ProductData {
 
     // Create the closes from buckets, used for indicators.
     sw.restart();
-    const closes = buckets.map((b) => b.price.close);
+    const closes = buckets.map((b) => {
+      return {date: b.timestampISO, close: b.price.close};
+    });
+
     let change: number = 0;
     if (closes.length > 1) {
-      const ratio = closes[closes.length - 1] / closes[closes.length - 2];
+      const ratio =
+        closes[closes.length - 1].close / closes[closes.length - 2].close;
       change = (ratio - 1) * 100;
     }
 
     // Create the indicators
-    const indicators = this.createIndicators(closes);
+    const indicators = this.lastIndicators(this.createIndicators(closes));
     const indicatorsElapsed: number = sw.stop();
 
     // Create the new ranking and update if created.
@@ -394,6 +417,43 @@ export class ProductData {
         total: Stopwatch.msToSeconds(sw.totalMs),
       },
     };
+  }
+
+  /**
+   * Converts all indicator data to CSV format.
+   */
+  indicatorsToCSV() {
+    const buckets = this.getBuckets();
+    if (buckets.length === 0) return [];
+
+    const closes = buckets.map((b) => {
+      return {date: b.timestampISO, close: b.price.close};
+    });
+
+    const indicators = this.createIndicators(closes);
+    const rows = generateIndicatorRows(indicators);
+
+    const createCsvWriter = require('csv-writer').createObjectCsvWriter;
+    const csvWriter = createCsvWriter({
+      path: `${this.productId}.csv`,
+      header: [
+        {id: 'date', title: 'DATE'},
+        {id: 'close', title: 'CLOSE'},
+        {id: 'rsi', title: 'RSI'},
+        {id: 'macd_value', title: 'MACD_VALUE'},
+        {id: 'macd_signal', title: 'MACD_SIGNAL'},
+        {id: 'sma_twelve', title: 'SMA_TWELVE'},
+        {id: 'sma_twentysix', title: 'SMA_TWENTYSIX'},
+        {id: 'sma_fifty', title: 'SMA_FIFTY'},
+        {id: 'sma_twohundred', title: 'SMA_TWOHUNDRED'},
+        {id: 'ema_twelve', title: 'EMA_TWELVE'},
+        {id: 'ema_twentysix', title: 'EMA_TWENTYSIX'},
+        {id: 'ema_fifty', title: 'EMA_FIFTY'},
+        {id: 'ema_twohundred', title: 'EMA_TWOHUNDRED'},
+      ],
+    });
+
+    csvWriter.writeRecords(rows);
   }
 
   /**

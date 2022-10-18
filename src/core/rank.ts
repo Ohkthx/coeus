@@ -3,7 +3,12 @@ import {CLOSE_WEIGHT, DIFF_WEIGHT, VOLUME_WEIGHT} from '.';
 import {toFixed} from '../product';
 import {toFixed as quickFix} from '../utils';
 import {BucketData} from './bucket';
-import {Indicators, MASet, RSI_OVERBOUGHT, RSI_OVERSOLD} from './indicators';
+import {
+  LastIndicators,
+  MASet,
+  RSI_OVERBOUGHT,
+  RSI_OVERSOLD,
+} from './indicators';
 
 export interface SortFilter {
   count?: number;
@@ -21,7 +26,7 @@ export interface ProductRanking {
   change24hr: number;
   movement: number;
   dataPoints: number;
-  indicators: Indicators;
+  indicators: LastIndicators;
   ratio: {
     rating: number;
     close: number;
@@ -76,7 +81,7 @@ export function sortRankings(
  *
  * @param {string} productId - Product/pair to process.
  * @param {BucketData[]} data - Bucket data to process and compile into a ranking.
- * @param {Indicators} indicators - Groups of indicator data to add to ranking..
+ * @param {LastIndicators} indicators - Groups of indicator data to add to ranking..
  * @param {number} movement - Buying/Selling ratio to add to ranking.
  * @returns {ProductRanking | undefined} Ranking of the product, if no errors.
  */
@@ -84,7 +89,7 @@ export function makeRanking(
   productId: string,
   data: BucketData[],
   change: number,
-  indicators: Indicators,
+  indicators: LastIndicators,
   movement: number,
 ): ProductRanking | undefined {
   if (data.length === 0) return;

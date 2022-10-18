@@ -8,7 +8,7 @@ import {AnonymousClient} from '../exchange-api/coinbase';
 import {Currencies, CurrencyUpdate, initCurrency} from '../currency';
 import {delay, getUniqueId} from '../utils';
 import {APP_DEBUG} from '..';
-import {ElapsedTimers, ProductData, timerSummary} from './product-data';
+import {ElapsedTimers, ProductData} from './product-data';
 import {DataOpts} from './opts';
 import {sendAnalysis, sendChanges, sendRankings} from '../discord/notification';
 import {DiscordBot} from '../discord/discord-bot';

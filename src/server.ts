@@ -19,6 +19,7 @@ import {DiscordBot} from './discord/discord-bot';
 import {EmitServer} from './emitter';
 import {CandleDb} from './sql';
 import {Backtest, BacktestConfig, Strategy} from './backtest';
+import {FileManager} from './file-manager';
 
 const mUpdateTime = (S_GRANULARITY / 60) * UPDATE_FREQUENCY;
 appInfo(`APP_DEBUG set to '${APP_DEBUG}'`);
@@ -67,6 +68,13 @@ async function killAll() {
     while (CandleDb.isSaving()) await delay(250);
     await CandleDb.killConnection();
     appInfo('[candles] saved.');
+  }
+
+  // Wait for files to finish deleting.
+  if (FileManager.isDelayDeletion()) {
+    appInfo('[file-manager] currently deleting files... waiting.');
+    FileManager.forceDeletionAll();
+    appInfo('[file-manager] deleting complete.');
   }
 
   // Kill the HTTP server.

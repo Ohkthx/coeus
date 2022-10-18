@@ -5,7 +5,9 @@ import {
   SlashCommandBuilder,
 } from 'discord.js';
 import {State} from '../../core';
+import {ProductData} from '../../core/product-data';
 import {Currencies} from '../../currency';
+import {FileManager} from '../../file-manager';
 import {Products} from '../../product';
 
 module.exports = {
@@ -47,6 +49,17 @@ module.exports = {
     )
     .addSubcommand((subcmd) =>
       subcmd
+        .setName('indicators')
+        .setDescription('retrieve a products indicators.')
+        .addStringOption((option) =>
+          option
+            .setName('id')
+            .setDescription('Id of the product/pair, ie. BTC-USD')
+            .setRequired(true),
+        ),
+    )
+    .addSubcommand((subcmd) =>
+      subcmd
         .setName('update')
         .setDescription('Gives you the current Update Id.'),
     )
@@ -71,6 +84,8 @@ module.exports = {
         return getProduct(interaction);
       case 'currency':
         return getCurrency(interaction);
+      case 'indicators':
+        return getIndicators(interaction);
       case 'update':
         return getUpdate(interaction);
       case 'filter':
@@ -158,6 +173,47 @@ function getCurrency(interaction: CommandInteraction) {
 
   return interaction.reply({
     content: codeBlock('json', JSON.stringify(currency, null, 2)),
+    ephemeral: false,
+  });
+}
+
+function getIndicators(interaction: CommandInteraction) {
+  if (!interaction.isChatInputCommand()) {
+    return interaction.reply({
+      content: `This is not a chat input command.`,
+      ephemeral: true,
+    });
+  }
+
+  const opts = interaction.options;
+  const productId = opts.getString('id', true) ?? '';
+  const pData = ProductData.find(productId.toUpperCase());
+  if (productId === '' || !pData) {
+    return interaction.reply({
+      content:
+        `Attempted to get an invalid product: ${productId}. ` +
+        `Could be disabled, delisted, non-existent, or typo'd.`,
+      ephemeral: true,
+    });
+  }
+
+  const fname = `Indicators-${pData.productId}.csv`;
+  if (!FileManager.exists(`./${fname}`)) {
+    // Generate the report since it does not exists.
+    pData.indicatorsToCSV();
+    FileManager.queueDeletion(`./${fname}`, 30000);
+    return interaction.reply({
+      content:
+        `Indicators generated for product: ${pData.productId}.\n` +
+        `Please call the same command again to get the report.\n` +
+        `It will be automatically deleted in 30 seconds.`,
+      ephemeral: true,
+    });
+  }
+
+  return interaction.reply({
+    content: `Historical Data for: ${productId}`,
+    files: [{attachment: `./${fname}`, name: fname}],
     ephemeral: false,
   });
 }
