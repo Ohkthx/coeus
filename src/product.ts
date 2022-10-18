@@ -52,7 +52,7 @@ export class Products {
         info.changes.push(...Products.calcChanges(old, product));
       }
 
-      PRODUCTS.set(p.id, product);
+      PRODUCTS.set(p.id, Products.clean(product));
 
       // Update the database.
       await ProductModel.updateOne(

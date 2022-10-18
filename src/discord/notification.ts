@@ -161,7 +161,7 @@ export async function sendRankings(
     `${updateString}` +
       `+ Processed ${total} products and ${dpString} candles, filtered ${filtered} rankings.\n` +
       `${filterString}\n` +
-      `+ Updated @Local: ${date}\n` +
+      `+ Updated @CST: ${date.toLocaleString('en-GB', {timeZone: 'CST'})}\n` +
       `+ Updated @ISO-8601: ${date.toISOString()}\n` +
       `\nNotes:\n` +
       `+ Values of '-1' indicate errors, not enough data, or data not calculated.\n` +

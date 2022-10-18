@@ -5,6 +5,7 @@ import {
   SlashCommandBuilder,
 } from 'discord.js';
 import {State} from '../../core';
+import {Currencies} from '../../currency';
 import {Products} from '../../product';
 
 module.exports = {
@@ -35,6 +36,17 @@ module.exports = {
     )
     .addSubcommand((subcmd) =>
       subcmd
+        .setName('currency')
+        .setDescription('retrieve a currency.')
+        .addStringOption((option) =>
+          option
+            .setName('id')
+            .setDescription('Id of the currency, ie. BTC')
+            .setRequired(true),
+        ),
+    )
+    .addSubcommand((subcmd) =>
+      subcmd
         .setName('update')
         .setDescription('Gives you the current Update Id.'),
     )
@@ -57,6 +69,8 @@ module.exports = {
         return getRank(interaction);
       case 'product':
         return getProduct(interaction);
+      case 'currency':
+        return getCurrency(interaction);
       case 'update':
         return getUpdate(interaction);
       case 'filter':
@@ -118,6 +132,32 @@ function getProduct(interaction: CommandInteraction) {
 
   return interaction.reply({
     content: codeBlock('json', JSON.stringify(product, null, 2)),
+    ephemeral: false,
+  });
+}
+
+function getCurrency(interaction: CommandInteraction) {
+  if (!interaction.isChatInputCommand()) {
+    return interaction.reply({
+      content: `This is not a chat input command.`,
+      ephemeral: true,
+    });
+  }
+
+  const opts = interaction.options;
+  const cId = opts.getString('id', true) ?? '';
+  const currency = Currencies.get(cId.toUpperCase());
+  if (cId === '' || !currency) {
+    return interaction.reply({
+      content:
+        `Attempted to get an invalid currency: ${cId}. ` +
+        `Could be disabled, delisted, non-existent, or typo'd.`,
+      ephemeral: true,
+    });
+  }
+
+  return interaction.reply({
+    content: codeBlock('json', JSON.stringify(currency, null, 2)),
     ephemeral: false,
   });
 }

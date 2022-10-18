@@ -186,11 +186,7 @@ export class ProductData {
    * @returns {Promise<SimpleCandle[]>} Candles stored in database.
    */
   private async loadCandles(oldestTsISO: string): Promise<SimpleCandle[]> {
-    const candles = await CandleDb.loadCandles(this.productId, oldestTsISO);
-    return candles.map((c) => {
-      c.openTimeInISO = new Date(c.openTimeInISO).toISOString();
-      return c;
-    });
+    return CandleDb.loadCandles(this.productId, oldestTsISO);
   }
 
   /**

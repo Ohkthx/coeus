@@ -319,7 +319,6 @@ async function initState(opts: DataOpts) {
 
   coreDebug(`loaded ${loaded} product data, ${sw.stop()} seconds.`);
   const tTimer: ElapsedTimers = addTimers(elapses);
-  coreDebug(timerSummary(tTimer));
 
   // Send the updated rankings to discord.
   sendRankings(
@@ -377,7 +376,6 @@ async function updateData(): Promise<ProductRanking[]> {
   }
 
   const tTimer = addTimers(elapses);
-  coreDebug(timerSummary(tTimer));
 
   // Wait for candles to be done saving.
   if (CandleDb.isSaving()) {

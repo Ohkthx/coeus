@@ -350,10 +350,14 @@ export class CandleDb {
         `SELECT * FROM ${productId.toLowerCase()}` +
           `${queryExt}` +
           ` ORDER BY openTimeInISO ASC`,
-        (error, results: []) => {
+        (error, results: SimpleCandle[]) => {
           if (error) {
             resolve([]);
           } else if (results && results.length > 0) {
+            results = results.map((c) => {
+              c.openTimeInISO = new Date(c.openTimeInISO).toISOString();
+              return c;
+            });
             resolve(results);
           } else resolve([]);
         },

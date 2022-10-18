@@ -18,6 +18,7 @@ import {DataOpts} from './core/opts';
 import {DiscordBot} from './discord/discord-bot';
 import {EmitServer} from './emitter';
 import {CandleDb} from './sql';
+import {Backtest, BacktestConfig, Strategy} from './backtest';
 
 const mUpdateTime = (S_GRANULARITY / 60) * UPDATE_FREQUENCY;
 appInfo(`APP_DEBUG set to '${APP_DEBUG}'`);
@@ -79,6 +80,37 @@ async function killAll() {
   process.exit();
 }
 
+async function testFeature(): Promise<boolean> {
+  // Try backtest.
+  const strat: Strategy = {
+    readjustRate: 0.02,
+    buyRates: [0.005, 0.01, 0.02, 0.03, 0.04],
+    sellRate: 0.01,
+    sizeBase: 0.0001,
+    sizeGrowth: 2.5,
+    cutLoss: 0.1,
+  };
+
+  const pIds: string[] = ['BTC-USD', 'ETH-USD']; //, 'ADA-USD'];
+  const mins: number[] = [0.0001, 0.001, 1];
+  console.log(`Backtest Results:`);
+  for (let i = 0; i < pIds.length; i++) {
+    strat.sizeBase = mins[i];
+    const conf: BacktestConfig = {
+      productId: pIds[i],
+      startISO: DATA_OPTS.start.toISOString(),
+      strategy: strat,
+      funds: 1000,
+    };
+
+    const backtest = new Backtest(conf);
+    const res = await backtest.start();
+    console.log(JSON.stringify(res, null, 2));
+  }
+
+  return true;
+}
+
 (async () => {
   // Make the connection to the mongo database.
   await connect(`mongodb://localhost/${DB_DATABASE}`);
@@ -94,6 +126,9 @@ async function killAll() {
 
   // Load the Discord Config.
   await DiscordBot.init('server');
+
+  //const quitEarly = await testFeature();
+  //if (quitEarly) await killAll();
 
   // Initialize the core.
   await State.initWrapper(DATA_OPTS);

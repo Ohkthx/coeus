@@ -46,7 +46,7 @@ export class Currencies {
         info.changes.push(...Currencies.calcChanges(old, currency));
       }
 
-      CURRENCIES.set(c.id, currency);
+      CURRENCIES.set(c.id, Currencies.clean(currency));
 
       // Update the database.
       await CurrencyModel.updateOne(
