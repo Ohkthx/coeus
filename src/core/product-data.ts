@@ -435,7 +435,7 @@ export class ProductData {
 
     const createCsvWriter = require('csv-writer').createObjectCsvWriter;
     const csvWriter = createCsvWriter({
-      path: `${this.productId}.csv`,
+      path: `Indicators-${this.productId}.csv`,
       header: [
         {id: 'date', title: 'DATE'},
         {id: 'close', title: 'CLOSE'},

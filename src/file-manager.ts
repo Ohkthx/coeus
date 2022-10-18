@@ -11,7 +11,6 @@ export class FileManager {
    * @param {number} msDelay - Delay (ms) till deletion.
    */
   static async queueDeletion(filename: string, msDelay: number) {
-    if (!existsSync(filename)) return;
     IS_DELETING.set(filename, msDelay);
 
     await delay(msDelay);
